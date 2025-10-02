@@ -1,6 +1,20 @@
 const $ = (id) => document.getElementById(id);
-if (Array.isArray(json?.results)) return json.results;
-return [];
+const out = $('out');
+const count = $('count');
+
+
+const show = (data) => {
+  const n = Array.isArray(data) ? data.length : (Array.isArray(data?.items) ? data.items.length : 0);
+  count.textContent = String(n);
+  out.textContent = JSON.stringify(data, null, 2);
+};
+
+
+const pickArray = (json) => {
+  if (Array.isArray(json)) return json;
+  if (Array.isArray(json?.items)) return json.items;
+  if (Array.isArray(json?.results)) return json.results;
+  return [];
 };
 
 
@@ -15,14 +29,26 @@ $('btn-load').onclick = async () => {
   const ep = $('endpoint').value;
   const q = $('q').value.trim();
   const def = $('def').value;
-  const city = $('city').value.trim();
-  const name = $('name').value.trim();
+  const facilityId = $('facility').value.trim();
 
 
+// Upstream unterstützte Filter
   const params = new URLSearchParams();
-  if (def) params.set('definitionId', def); // Upstream-Filter, wenn unterstützt
-  if (city) params.set('city', city);
-  if (name) params.set('name', name);
+
+
+// Nur dort anhängen, wo es sinnvoll ist
+  if (def && (ep === '/api/facilities' || ep === '/api/features' || ep === '/api/facility-definitions' || ep === '/api/charging-stations')) {
+    params.set('definitionId', def);
+  }
+  if (facilityId && (ep === '/api/occupancies' || ep === '/api/charging-stations')) {
+    params.set('facilityId', facilityId);
+  }
+
+
+// Occupancies brauchen oft facilityId → sanfter Hinweis
+  if (ep === '/api/occupancies' && !facilityId) {
+    out.textContent = 'Tipp: Für Occupancies eine facilityId setzen (sonst kommt evtl. nichts / sehr viel).';
+  }
 
 
   const url = ep + (params.toString() ? `?${params.toString()}` : '');
@@ -41,7 +67,7 @@ $('btn-load').onclick = async () => {
       return;
     }
     const json = ct.includes('application/json') ? await res.json() : await res.text();
-    const arr = typeof json === 'string' ? [{ note: 'Non-JSON response', body: json.slice(0,1000) }] : pickArray(json);
+    const arr = typeof json === 'string' ? [{ note: 'Non-JSON response', body: json.slice(0, 1000) }] : pickArray(json);
     const filtered = clientFilter(arr, q);
     show(filtered);
   } catch (e) {
@@ -50,5 +76,5 @@ $('btn-load').onclick = async () => {
 };
 
 
-// Autoload beim Start
+// Autoload
 $('btn-load').click();

@@ -2,9 +2,8 @@
   "name": "goldbeck-parking-proxy",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "node --watch goldbeck-proxy.js",
+    "dev": "node goldbeck-proxy.js",
     "start": "node goldbeck-proxy.js"
   },
   "dependencies": {

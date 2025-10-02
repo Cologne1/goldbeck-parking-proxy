@@ -4,28 +4,76 @@
   <meta charset="utf-8" />
   <title>Goldbeck Parking – API Test</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --gb-blue:#003399; --gb-orange:#ff9900; --gb-grey:#f2f2f2; --gb-dark:#222; }
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, sans-serif; margin:0; background:var(--gb-grey); color:var(--gb-dark); }
+    header { background:var(--gb-blue); color:#fff; padding:1rem 2rem; }
+    header h1 { margin:0; font-size:1.25rem; letter-spacing:.5px; }
+    main { padding: 1.25rem; max-width: 1200px; margin: 0 auto; }
+    .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+    select, input, button { padding:8px 12px; border-radius:6px; border:1px solid #cfd3d7; font-size:14px; background:#fff; }
+    select:focus, input:focus { outline:2px solid var(--gb-blue); border-color:var(--gb-blue); }
+    button { background:var(--gb-blue); color:#fff; border:none; transition: background .15s ease; }
+    button:hover { background: var(--gb-orange); cursor:pointer; }
+    .pill { display:inline-block; background:var(--gb-orange); color:#fff; border-radius:999px; padding:4px 10px; font-size:12px; }
+    .hint { font-size:12px; color:#555; margin-top:.5rem; }
+    pre { background:#0b1020; color:#b8f4b8; padding:14px; border-radius:8px; max-height:70vh; overflow:auto; font-size:13px; }
+    .group { display:flex; flex-direction:column; gap:6px; }
+    label { font-size:12px; color:#444; }
+  </style>
 </head>
 <body>
-  <h1>Goldbeck Parking – API Test</h1>
-  <div>
-    <select id="endpoint">
-      <option value="/api/facilities">Facilities</option>
-      <option value="/api/occupancies">Occupancies</option>
-      <option value="/api/features">Features</option>
-      <option value="/api/charging-stations">Charging Stations</option>
-    </select>
-    <input id="q" placeholder="Volltext-Filter (Client)" />
-    <select id="def">
-      <option value="">definitionId (optional)</option>
-      <option value="14">14 – Parkhaus</option>
-      <option value="1003">1003 – E-Charging area</option>
-    </select>
-    <input id="city" placeholder="Query: city" />
-    <input id="name" placeholder="Query: name" />
-    <button id="btn-load">Laden</button>
-    <span id="count">0</span>
+<header><h1>Goldbeck Parking – API Test</h1></header>
+<main>
+  <div class="toolbar">
+    <div class="group">
+      <label for="endpoint">Endpoint</label>
+      <select id="endpoint">
+        <option value="/api/facilities">Facilities</option>
+        <option value="/api/occupancies">Occupancies</option>
+        <option value="/api/features">Features</option>
+        <option value="/api/charging-stations">Charging Stations</option>
+        <option value="/api/facility-definitions">Facility Definitions</option>
+      </select>
+    </div>
+
+    <div class="group">
+      <label for="def">definitionId (optional)</label>
+      <select id="def">
+        <option value="">– none –</option>
+        <option value="14">14 – Parkhaus</option>
+        <option value="1003">1003 – E‑Charging area</option>
+      </select>
+    </div>
+
+    <div class="group">
+      <label for="facility">facilityId (optional / für Occupancies oft nötig)</label>
+      <input id="facility" placeholder="z. B. 12345" />
+    </div>
+
+    <div class="group" style="min-width:220px;">
+      <label for="q">Client-Filter (Volltext)</label>
+      <input id="q" placeholder="Filtern in der UI" />
+    </div>
+
+    <div class="group">
+      <label>&nbsp;</label>
+      <button id="btn-load">Laden</button>
+    </div>
+
+    <div class="group">
+      <label>&nbsp;</label>
+      <span id="count" class="pill">0</span>
+    </div>
   </div>
+
+  <div class="hint">
+    <strong>Hinweis:</strong> Upstream-Filter unterstützt: <code>definitionId</code> (z. B. 14/1003), <code>facilityId</code> (z. B. für Occupancies). Alles andere erfolgt als Client‑Volltextfilter.
+  </div>
+
   <pre id="out">{ }</pre>
-  <script src="./app.js"></script>
+</main>
+<script src="./app.js"></script>
 </body>
 </html>
