@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Goldbeck Parking – API Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h1>Goldbeck Parking – API Test</h1>
+  <div>
+    <select id="endpoint">
+      <option value="/api/facilities">Facilities</option>
+      <option value="/api/occupancies">Occupancies</option>
+      <option value="/api/features">Features</option>
+      <option value="/api/charging-stations">Charging Stations</option>
+    </select>
+    <input id="q" placeholder="Volltext-Filter (Client)" />
+    <select id="def">
+      <option value="">definitionId (optional)</option>
+      <option value="14">14 – Parkhaus</option>
+      <option value="1003">1003 – E-Charging area</option>
+    </select>
+    <input id="city" placeholder="Query: city" />
+    <input id="name" placeholder="Query: name" />
+    <button id="btn-load">Laden</button>
+    <span id="count">0</span>
+  </div>
+  <pre id="out">{ }</pre>
+  <script src="./app.js"></script>
+</body>
+</html>
