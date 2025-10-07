@@ -10,24 +10,41 @@
     body { font-family: "Helvetica Neue", Arial, sans-serif; margin:0; background:var(--gb-grey); color:var(--gb-dark); }
     header { background:var(--gb-blue); color:#fff; padding:1rem 2rem; }
     header h1 { margin:0; font-size:1.25rem; letter-spacing:.5px; }
-    main { padding: 1.25rem; max-width: 1200px; margin: 0 auto; }
-    .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+    main { padding: 1.25rem; max-width: 1250px; margin: 0 auto; }
+
+    .toolbar { display:grid; grid-template-columns: repeat(12, 1fr); gap:10px; align-items:end; margin-bottom:1rem; }
+    .group { display:flex; flex-direction:column; gap:6px; }
+    .col-3 { grid-column: span 3; }
+    .col-2 { grid-column: span 2; }
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+
+    label { font-size:12px; color:#444; }
     select, input, button { padding:8px 12px; border-radius:6px; border:1px solid #cfd3d7; font-size:14px; background:#fff; }
     select:focus, input:focus { outline:2px solid var(--gb-blue); border-color:var(--gb-blue); }
     button { background:var(--gb-blue); color:#fff; border:none; transition: background .15s ease; }
     button:hover { background: var(--gb-orange); cursor:pointer; }
+    button:disabled { background:#b8c3e6; cursor:not-allowed; }
+
     .pill { display:inline-block; background:var(--gb-orange); color:#fff; border-radius:999px; padding:4px 10px; font-size:12px; }
-    .hint { font-size:12px; color:#555; margin-top:.5rem; }
+    .hint { font-size:12px; color:#555; margin: .25rem 0 .75rem; }
+
+    .layout { display:grid; grid-template-columns: 1fr 380px; gap:14px; }
+    .panel { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; }
+    .panel h3 { margin:0 0 8px; font-size:15px; color:#111; }
+
     pre { background:#0b1020; color:#b8f4b8; padding:14px; border-radius:8px; max-height:70vh; overflow:auto; font-size:13px; }
-    .group { display:flex; flex-direction:column; gap:6px; }
-    label { font-size:12px; color:#444; }
+    table { width:100%; border-collapse: collapse; font-size:13px; }
+    th, td { border-bottom:1px solid #eee; padding:6px 8px; text-align:left; }
+    th { background:#fafafa; }
+    .muted { color:#666; }
   </style>
 </head>
 <body>
 <header><h1>Goldbeck Parking – API Test</h1></header>
 <main>
-  <div class="toolbar">
-    <div class="group">
+  <div class="toolbar panel">
+    <div class="group col-3">
       <label for="endpoint">Endpoint</label>
       <select id="endpoint">
         <option value="/api/facilities">Facilities</option>
@@ -38,41 +55,85 @@
       </select>
     </div>
 
-    <div class="group">
-      <label for="def">definitionId (optional)</label>
+    <div class="group col-2">
+      <label for="def">definitionId</label>
       <select id="def">
         <option value="">– none –</option>
         <option value="14">14 – Parkhaus</option>
-        <option value="1003">1003 – E‑Charging area</option>
+        <option value="1003">1003 – E‑Charging</option>
       </select>
     </div>
 
-    <div class="group">
-      <label for="facility">facilityId (optional / für Occupancies oft nötig)</label>
+    <div class="group col-2">
+      <label for="facility">facilityId</label>
       <input id="facility" placeholder="z. B. 12345" />
     </div>
 
-    <div class="group" style="min-width:220px;">
+    <div class="group col-3">
       <label for="q">Client-Filter (Volltext)</label>
       <input id="q" placeholder="Filtern in der UI" />
     </div>
 
-    <div class="group">
+    <div class="group col-1">
       <label>&nbsp;</label>
       <button id="btn-load">Laden</button>
     </div>
 
-    <div class="group">
+    <div class="group col-1">
       <label>&nbsp;</label>
       <span id="count" class="pill">0</span>
     </div>
+
+    <div class="col-12 hint">
+      <strong>Detailsuche:</strong> Felder, die zum gewählten Endpoint nicht passen, werden automatisch deaktiviert/ausgegraut.
+    </div>
   </div>
 
-  <div class="hint">
-    <strong>Hinweis:</strong> Upstream-Filter unterstützt: <code>definitionId</code> (z. B. 14/1003), <code>facilityId</code> (z. B. für Occupancies). Alles andere erfolgt als Client‑Volltextfilter.
+  <div class="layout">
+    <div class="panel">
+      <h3>Response</h3>
+      <pre id="out">{ }</pre>
+    </div>
+
+    <aside class="panel">
+      <h3>ID‑Übersicht</h3>
+      <div class="group">
+        <button id="btn-load-defs">Facility‑Definitions laden</button>
+        <small class="muted">zeigt verfügbare <code>definitionId</code>s</small>
+      </div>
+      <div class="group" style="margin-top:8px;">
+        <input id="catalog-def" placeholder="Filter Definition (ID oder Name)" />
+        <button id="btn-load-fac">Facilities laden</button>
+        <small class="muted">Tipp: Spalte <em>ID</em> anklicken → lädt Details</small>
+      </div>
+      <div style="margin-top:8px; max-height:28vh; overflow:auto;">
+        <table id="catalog"><thead><tr><th>Typ</th><th>ID</th><th>Name</th><th class="muted">extra</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="group" style="margin-top:12px;">
+        <h3>Facility‑Details</h3>
+        <input id="details-id" placeholder="facilityId eingeben…" />
+        <button id="btn-fac-details">Details laden</button>
+        <pre id="details" style="max-height:26vh;">{ }</pre>
+      </div>
+    </aside>
   </div>
 
-  <pre id="out">{ }</pre>
+  <aside class="panel">
+    <h3>ID‑Übersicht</h3>
+    <div class="group">
+      <button id="btn-load-defs">Facility‑Definitions laden</button>
+      <small class="muted">zeigt verfügbare <code>definitionId</code>s</small>
+    </div>
+    <div class="group" style="margin-top:8px;">
+      <input id="catalog-def" placeholder="Filter Definition (ID oder Name)" />
+      <button id="btn-load-fac">Facilities laden</button>
+      <small class="muted">lädt Facilities (optional gefiltert per definitionId aus dem Select links)</small>
+    </div>
+    <div style="margin-top:8px; max-height:58vh; overflow:auto;">
+      <table id="catalog"><thead><tr><th>Typ</th><th>ID</th><th>Name</th><th class="muted">extra</th></tr></thead><tbody></tbody></table>
+    </div>
+  </aside>
+  </div>
 </main>
 <script src="./app.js"></script>
 </body>
