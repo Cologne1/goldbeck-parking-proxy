@@ -5,13 +5,8 @@ const count = $('count');
 
 // sichere JSON-Ausgabe
 const show = (data) => {
-  let n = 0;
-  // Zähllogik
-  if (Array.isArray(data)) n = data.length;
-  else if (data && Array.isArray(data.items)) n = data.items.length;
-  else if (data && Array.isArray(data.results)) n = data.results.length;
-  count.textContent = String(n);
-
+  const arr = pickArray(data);
+  count.textContent = String(Array.isArray(arr) ? arr.length : 0);
   try { out.textContent = JSON.stringify(data, null, 2); }
   catch { out.textContent = String(data); }
 };
@@ -19,15 +14,18 @@ const show = (data) => {
 // flexibel Array aus API picken
 function pickArray(json) {
   if (Array.isArray(json)) return json;
-  if (json && Array.isArray(json.items)) return json.items;
-  if (json && Array.isArray(json.results)) return json.results;
-  // robustere Variante: erste Array-Property (1 Ebene tief)
-  if (json && typeof json === 'object') {
-    const nested = Object.values(json).find(v => Array.isArray(v));
-    if (nested) return nested;
-    // Single-Objekt „als Liste“
-    if (json.id || json.facilityId) return [json];
+  if (!json || typeof json !== 'object') return [];
+  const keys = ['items','results','facilities','features','content','data','list'];
+  for (const k of keys) {
+    if (Array.isArray(json[k])) return json[k];
+    if (json[k] && typeof json[k] === 'object') {
+      const arr = Object.values(json[k]).find(v => Array.isArray(v));
+      if (arr) return arr;
+    }
   }
+  const firstArr = Object.values(json).find(v => Array.isArray(v));
+  if (firstArr) return firstArr;
+  if (json.id || json.facilityId) return [json];
   return [];
 }
 
@@ -45,7 +43,6 @@ function syncFieldState() {
   const defEl = $('def');
   const standortEl = $('standort');
 
-  // default
   defEl.disabled = false;
   standortEl.disabled = false;
 
@@ -77,7 +74,7 @@ $('btn-load').onclick = async function handleLoad() {
   if (def && (ep === '/api/facilities' || ep === '/api/features' || ep === '/api/facility-definitions' || ep === '/api/charging-stations')) {
     params.set('definitionId', def);
   }
-  if (standortId && (ep === '/api/occupancies' || ep === '/api/charging-stations')) {
+  if (standortId && (ep === '/api/occupancies' || ep === '/api/charging-stations' || ep === '/api/features')) {
     params.set('facilityId', standortId);
   }
 

@@ -51,7 +51,7 @@ async function proxyGet(res, upstreamPath, query = '') {
   }
 }
 
-// Nur für die :id-Route: Upstream-Fetch OHNE sofort zu antworten (damit wir fallbacks probieren können)
+// Nur für flexible Varianten: Upstream-Fetch OHNE sofort zu antworten (damit wir Fallbacks probieren können)
 async function getUpstreamRaw(pathAndQuery) {
   const url = `${BASE_URL}${pathAndQuery}`;
   const r = await request(url, {
@@ -68,6 +68,7 @@ async function getUpstreamRaw(pathAndQuery) {
 app.use('/', express.static(path.join(__dirname, 'public')));
 
 // ---- API Proxy Routen ----
+
 // E-Charging
 app.get('/api/charging-stations', (req, res) =>
   proxyGet(res, '/services/charging/v1x0/charging-stations', qs(req))
@@ -76,46 +77,10 @@ app.get('/api/charging-files/:fileAttachmentId', (req, res) =>
   proxyGet(res, `/services/charging/v1x0/files/${encodeURIComponent(req.params.fileAttachmentId)}`)
 );
 
-// Facilities / Features / Filecontent (Listen)
-
-// 👉 ERSETZEN: /api/facilities
-app.get('/api/facilities', async (req, res) => {
-  const query = qs(req);
-  const qSuffix = query ? `?${query}` : '';
-
-  // Häufige Varianten je nach Deployment
-  const candidates = [
-    `/services/v4x0/facilities${qSuffix}`,
-    `/services/v5x0/facilities${qSuffix}`,
-    `/services/facilities${qSuffix}`,
-    `/facilities${qSuffix}`,
-  ];
-
-  try {
-    for (const pathAndQuery of candidates) {
-      const { r, ct, url } = await getUpstreamRaw(pathAndQuery);
-      // Debug-Header mitgeben
-      res.setHeader('x-proxy-tried', (res.getHeader('x-proxy-tried') || '') + (res.getHeader('x-proxy-tried') ? ',' : '') + url);
-
-      if ((r.statusCode || 0) >= 200 && (r.statusCode || 0) < 400) {
-        res.status(r.statusCode || 200);
-        if (isJsonContentType(ct)) {
-          const data = await r.body.json();
-          return res.json(data);
-        } else {
-          res.setHeader('Content-Type', ct || 'application/octet-stream');
-          return r.body.pipe(res);
-        }
-      }
-      // andernfalls nächsten Kandidaten probieren
-    }
-    return res.status(404).json({ error: 'Not found (facilities)', tried: res.getHeader('x-proxy-tried') });
-  } catch (err) {
-    console.error('facilities list error:', err?.message || err);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
-  }
-});
-
+// Garagen / Räume / Features / Filecontent / Parkhäuser (Listen)
+app.get('/api/facilities', (req, res) =>
+  proxyGet(res, '/services/v4x0/facilities', qs(req))
+);
 app.get('/api/facility-definitions', (req, res) =>
   proxyGet(res, '/services/v4x0/facilitydefinitions', qs(req))
 );
@@ -125,20 +90,25 @@ app.get('/api/features', (req, res) =>
 app.get('/api/filecontent', (req, res) =>
   proxyGet(res, '/services/v4x0/filecontent', qs(req))
 );
+app.get('/api/occupancies', (req, res) =>
+  proxyGet(res, '/services/v4x0/occupancies', qs(req))
+);
 
-// 👉 NEU: Facility nach ID (mit Fallbacks)
+// 👉 Facility-Details per ID (mit Query-Passthrough für z. B. embed=…)
+// Da upstream /{id} nicht garantiert ist, nutzen wir Query-Varianten.
 app.get('/api/facilities/:id', async (req, res) => {
   const id = String(req.params.id).trim();
   const query = qs(req);
-  const suffix = query ? `?${query}` : '';
 
-  // Kandidaten: erst /{id}, dann Query-Varianten
+  // embed & weitere Query-Parameter beibehalten
+  // Für die Varianten, die selbst schon ?… enthalten, hängen wir &query an.
+  const addTail = (hasQ) => (query ? (hasQ ? `&${query}` : `?${query}`) : '');
+
   const candidates = [
-      `/services/v4x0/facilities/${encodeURIComponent(id)}${suffix}`,
-      `/services/v4x0/facilities?id=${encodeURIComponent(id)}${suffix}`,
-      `/services/v4x0/facilities?facilityId=${encodeURIComponent(id)}${suffix}`,
-      `/services/v4x0/facilities?$filter=${encodeURIComponent(`id eq ${id}`)}${suffix ? `&${query}` : ''}`,
-      `/services/v4x0/facilities?filter=${encodeURIComponent(`id eq ${id}`)}${suffix ? `&${query}` : ''}`,
+    `/services/v4x0/facilities?id=${encodeURIComponent(id)}${addTail(true)}`,
+    `/services/v4x0/facilities?facilityId=${encodeURIComponent(id)}${addTail(true)}`,
+    `/services/v4x0/facilities?$filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
+    `/services/v4x0/facilities?filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
   ];
 
   try {
@@ -150,53 +120,28 @@ app.get('/api/facilities/:id', async (req, res) => {
         if (isJsonContentType(ct)) {
           const data = await r.body.json();
 
-          // Objekt direkt?
-          if (data && typeof data === 'object' && !Array.isArray(data)) {
-            // Falls Wrapper: versuche gängige Keys
-            const keys = ['item','result','facility','data','content'];
-            for (const k of keys) {
-              if (data[k] && typeof data[k] === 'object' && !Array.isArray(data[k])) {
-                return res.json(data[k]);
-              }
-            }
-            // Hat selbst eine ID? Dann zurück
-            if (data.id || data.facilityId) return res.json(data);
-            // Vielleicht steckt irgendwo ein Array mit genau einem Treffer
-            const arr =
-              Array.isArray(data) ? data :
-                Object.values(data).find(v => Array.isArray(v)) || [];
-            if (Array.isArray(arr) && arr.length) {
-              const match = arr.find(x =>
-                String(x?.id) === id || String(x?.facilityId) === id
-              ) || (arr.length === 1 ? arr[0] : null);
-              if (match) return res.json(match);
-            }
-            // Daten da, aber kein passender Treffer → probiere nächsten Kandidaten
-            continue;
+          // Einzelobjekt direkt?
+          if (data && typeof data === 'object' && !Array.isArray(data) && (data.id || data.facilityId)) {
+            return res.json(data);
           }
 
-          // Array-Antwort
-          if (Array.isArray(data)) {
-            const match = data.find(x =>
-              String(x?.id) === id || String(x?.facilityId) === id
-            ) || (data.length === 1 ? data[0] : null);
-            if (match) return res.json(match);
-            continue;
-          }
+          // Wrapper / Arrays → bestes Match ziehen
+          const arr = Array.isArray(data) ? data : (Object.values(data || {}).find(v => Array.isArray(v)) || []);
+          const hit = Array.isArray(arr)
+            ? (arr.find(x => String(x?.id) === id || String(x?.facilityId) === id) || (arr.length === 1 ? arr[0] : null))
+            : null;
 
-          // Irgendwas JSON-artiges, aber ohne Treffer → nächster Kandidat
+          if (hit) return res.json(hit);
+          // Sonst nächste Variante
           continue;
         } else {
-          // Non-JSON (unerwartet) → direkt durchreichen und beenden
+          // Non-JSON (unerwartet) → direkt durchreichen
           res.status(r.statusCode || 200);
           res.setHeader('Content-Type', ct || 'application/octet-stream');
           return r.body.pipe(res);
         }
       }
-
-      // 404/405/etc.: probiere nächsten Kandidaten
-      // (Optional: Log nur bei Bedarf)
-      // console.log('Upstream miss', r.statusCode, pathAndQuery);
+      // 4xx/5xx → nächste Variante
     }
 
     // Wenn alle Varianten nichts liefern:
@@ -207,17 +152,12 @@ app.get('/api/facilities/:id', async (req, res) => {
   }
 });
 
-// Occupancies
-app.get('/api/occupancies', (req, res) =>
-  proxyGet(res, '/services/v4x0/occupancies', qs(req))
-);
-
 // Health
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, baseUrl: BASE_URL, hasAuth: Boolean(GB_USER && GB_PASS) });
 });
 
-// Fallback: /api/* → 1:1 an BASE_URL weiterreichen
+// Fallback: /api/* → 1:1 an BASE_URL weiterreichen (praktisch für Tests)
 app.get('/api/*', async (req, res) => {
   try {
     const upstreamPath = req.originalUrl.replace(/^\/api/, '');
@@ -242,7 +182,6 @@ app.get('/api/*', async (req, res) => {
     return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
   }
 });
-
 
 app.listen(PORT, () => {
   console.log(`Goldbeck test proxy on http://localhost:${PORT} (base: ${BASE_URL})`);
