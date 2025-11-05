@@ -77,9 +77,45 @@ app.get('/api/charging-files/:fileAttachmentId', (req, res) =>
 );
 
 // Facilities / Features / Filecontent (Listen)
-app.get('/api/facilities', (req, res) =>
-  proxyGet(res, '/services/v4x0/facilities', qs(req))
-);
+
+// 👉 ERSETZEN: /api/facilities
+app.get('/api/facilities', async (req, res) => {
+  const query = qs(req);
+  const qSuffix = query ? `?${query}` : '';
+
+  // Häufige Varianten je nach Deployment
+  const candidates = [
+    `/services/v4x0/facilities${qSuffix}`,
+    `/services/v5x0/facilities${qSuffix}`,
+    `/services/facilities${qSuffix}`,
+    `/facilities${qSuffix}`,
+  ];
+
+  try {
+    for (const pathAndQuery of candidates) {
+      const { r, ct, url } = await getUpstreamRaw(pathAndQuery);
+      // Debug-Header mitgeben
+      res.setHeader('x-proxy-tried', (res.getHeader('x-proxy-tried') || '') + (res.getHeader('x-proxy-tried') ? ',' : '') + url);
+
+      if ((r.statusCode || 0) >= 200 && (r.statusCode || 0) < 400) {
+        res.status(r.statusCode || 200);
+        if (isJsonContentType(ct)) {
+          const data = await r.body.json();
+          return res.json(data);
+        } else {
+          res.setHeader('Content-Type', ct || 'application/octet-stream');
+          return r.body.pipe(res);
+        }
+      }
+      // andernfalls nächsten Kandidaten probieren
+    }
+    return res.status(404).json({ error: 'Not found (facilities)', tried: res.getHeader('x-proxy-tried') });
+  } catch (err) {
+    console.error('facilities list error:', err?.message || err);
+    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
+  }
+});
+
 app.get('/api/facility-definitions', (req, res) =>
   proxyGet(res, '/services/v4x0/facilitydefinitions', qs(req))
 );
