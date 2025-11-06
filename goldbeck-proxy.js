@@ -1,4 +1,4 @@
-// goldbeck-proxy.js – iPAW /services v4x0 (ohne /rest) – Einzel-Fetches statt embed
+// goldbeck-proxy.js – iPAW Proxy (CommonJS) – Facilities (Parkhäuser) & Charging
 require('dotenv/config');
 const express = require('express');
 const { request } = require('undici');
@@ -76,10 +76,7 @@ app.use('/', express.static(path.join(__dirname, 'public')));
 // ── Debug
 app.use((req,_res,next)=>{ if (req.path.startsWith('/api/')) console.log('[API]', req.method, req.originalUrl); next(); });
 
-/**
- * Bekannte Collections
- * (Pfadnamen können je nach Deployment leicht abweichen; /api/embed/:kind kann mehrere Varianten probieren.)
- */
+/** Pfade */
 const MAP = {
   facilities:          '/services/v4x0/facilities',
   facilitydefinitions: '/services/v4x0/facilitydefinitions',
@@ -87,27 +84,26 @@ const MAP = {
   filecontent:         '/services/v4x0/filecontent',
   occupancies:         '/services/v4x0/occupancies',
 
-  // Charging
   chargingStations:    '/services/charging/v1x0/charging-stations',
   chargingFiles:       '/services/charging/v1x0/files'
 };
 
-// ── Listen
+// ── Basis-Listen
 app.get('/api/facilities',           (req,res)=> proxyList(res, MAP.facilities,          qsStr(req)));
 app.get('/api/facility-definitions', (req,res)=> proxyList(res, MAP.facilitydefinitions, qsStr(req)));
 app.get('/api/features',             (req,res)=> proxyList(res, MAP.features,            qsStr(req)));
 app.get('/api/filecontent',          (req,res)=> proxyList(res, MAP.filecontent,         qsStr(req)));
 
-// ── Charging
-app.get('/api/charging-stations',    (req,res)=> proxyList(res, MAP.chargingStations, qsStr(req)));
-app.get('/api/charging-stations/:id', async (req,res)=>{
+// ── Charging: Liste + Detail
+app.get('/api/charging-stations', (req,res)=> proxyList(res, MAP.chargingStations, qsStr(req)));
+app.get('/api/charging-stations/:id', (req,res)=>{
   const id = encodeURIComponent(String(req.params.id||'').trim());
   return proxyList(res, `${MAP.chargingStations}/${id}`, qsStr(req));
 });
 app.get('/api/charging-files/:fileAttachmentId',
   (req,res)=> proxyList(res, `${MAP.chargingFiles}/${encodeURIComponent(req.params.fileAttachmentId)}`));
 
-// ── Occupancies (nur diese facilityId; probiert Query + Pfad-Variante)
+// ── Occupancies (für genau diese facilityId; probiert Query + Pfad-Variante)
 app.get('/api/occupancies', async (req, res) => {
   const q = Object.fromEntries(new URLSearchParams(qsStr(req)));
   const facilityId = (q.facilityId || q.id || '').toString().trim();
@@ -117,7 +113,6 @@ app.get('/api/occupancies', async (req, res) => {
   const candidates = [
     `${MAP.occupancies}?facilityId=${encodeURIComponent(facilityId)}`,
     `${MAP.occupancies}/facilities/${encodeURIComponent(facilityId)}`,
-    // optional:
     `${MAP.facilities}/${encodeURIComponent(facilityId)}/occupancies`,
   ];
 
@@ -198,7 +193,7 @@ app.get('/api/embed/:kind', async (req, res) => {
       }
       const json = await r.body.json();
 
-      // Facility-Subresource → vermutlich bereits richtig; Collections → strikt filtern
+      // Facility-Subresource → vermutlich korrekt; Collections → strikt filtern
       const isSub = /\/services\/v4x0\/facilities\/\d+\/?/i.test(url);
       const out = isSub ? pickArray(json) : filterByFacilityId(json, facilityId);
       return res.json(out);
