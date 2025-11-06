@@ -95,12 +95,12 @@ function restPath(p) {
 // dann:
 async function fetchFacilityOccupancyById(facilityId, locale) {
   const q = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  return gbGet(restPath(`rest/v1/operation/occupancies/facility/${encodeURIComponent(facilityId)}${q}`));
+  return gbGet(restPath(`iPCM/rest/v1/operation/occupancies/facility/${encodeURIComponent(facilityId)}${q}`));
 }
 
 async function fetchFacilityStatusById(facilityId, locale) {
   const q = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  return gbGet(restPath(`rest/v1/operation/status/facility/${encodeURIComponent(facilityId)}${q}`));
+  return gbGet(restPath(`iPCM/rest/v1/operation/status/facility/${encodeURIComponent(facilityId)}${q}`));
 }
 
 // ---- (Platzhalter bis du Facilities/Features-REST bestätigst) ----
