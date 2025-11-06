@@ -1,4 +1,4 @@
-// goldbeck-proxy.js (CommonJS) – iPCM + Static wie im ZIP
+// goldbeck-proxy.js – iPAW /services v4x0 (ohne /rest)
 require('dotenv/config');
 const express = require('express');
 const { request } = require('undici');
@@ -6,249 +6,141 @@ const path = require('path');
 
 const app = express();
 
-// ---- ENV ----
-const BASE_URL = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/iPCM';
+// ── ENV
+const BASE_URL = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/ipaw';
 const GB_USER  = process.env.GB_USER || 'CC webservicegps';
 const GB_PASS  = process.env.GB_PASS || 'webservice';
 const PORT     = Number(process.env.PORT || 4000);
+const BASIC    = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64');
 
-async function gbGet(path, { searchParams } = {}) {
-  const url = new URL(path, BASE_URL);
-  if (searchParams) Object.entries(searchParams).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await request(url, {
-    method: 'GET',
-    headers: {
-      'accept': 'application/json',
-      'authorization': 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64'),
-    },
-  });
-  if (res.statusCode >= 400) {
-    const text = await res.body.text();
-    throw new Error(`GB GET ${url} → ${res.statusCode}: ${text}`);
-  }
-  const ct = res.headers['content-type'] || '';
-  if (ct.includes('application/json')) {
-    return res.body.json();
-  }
-  // Fallback: Text (z.B. bei HTML, XML) – gib roh zurück
-  return res.body.text();
-}
+// ── Helpers
+const isJsonCT = (ct='') => /\bjson\b/i.test(ct);
+const toQueryString = (obj) => new URLSearchParams(obj || {}).toString();
+const qs = (req) => toQueryString(req.query || '');
 
-// Basic Auth Header (serverseitig)
-const basic = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64');
-
-app.use(express.json());
-
-// ---- Hilfsfunktionen ----
-function qs(req) {
-  const q = new URLSearchParams(req.query || {}).toString();
-  return q ? `?${q}` : '';
-}
-async function getUpstream(pathAndQuery) {
-  const url = `${BASE_URL}${pathAndQuery}`;
+async function upstreamGet(pathFromRoot, query='') {
+  // pathFromRoot muss mit / beginnen, z. B. /services/v4x0/facilities
+  const url = `${BASE_URL}${pathFromRoot}${query ? `?${query}` : ''}`;
   const r = await request(url, {
     method: 'GET',
-    headers: { Authorization: basic, Accept: 'application/json,*/*' },
+    headers: { Authorization: BASIC, Accept: 'application/json,*/*' },
     headersTimeout: 15000,
     bodyTimeout: 15000,
   });
   const ct = r.headers['content-type'] || '';
-  if (r.statusCode >= 400) {
-    const text = await r.body.text();
-    const err = new Error(`Upstream ${r.statusCode} for ${url}: ${text}`);
-    err.statusCode = r.statusCode;
-    throw err;
-  }
   return { r, ct, url };
 }
-async function getJson(pathAndQuery) {
-  const { r, ct } = await getUpstream(pathAndQuery);
-  return ct.includes('application/json') ? r.body.json() : r.body.text();
-}
-async function proxyGet(res, pathAndQuery) {
+
+async function proxyGet(res, pathFromRoot, query='') {
   try {
-    const { r, ct } = await getUpstream(pathAndQuery);
-    if (ct.includes('application/json')) {
+    const { r, ct, url } = await upstreamGet(pathFromRoot, query);
+    res.setHeader('x-upstream-url', url);
+    res.status(r.statusCode || 200);
+    if (isJsonCT(ct)) {
       const json = await r.body.json();
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       return res.json(json);
-    } else {
-      res.setHeader('Content-Type', ct || 'application/octet-stream');
-      return r.body.pipe(res);
     }
+    res.setHeader('Content-Type', ct || 'application/octet-stream');
+    return r.body.pipe(res);
   } catch (err) {
-    console.error('API passthrough error:', err?.message || err);
-    return res.status(err.statusCode || 502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
+    console.error('Proxy error:', err?.message || err);
+    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
   }
 }
 
-// ---- Static Test UI (GENAU wie im ZIP) ----
+// Static UI (optional)
 app.use('/', express.static(path.join(__dirname, 'public')));
 
-function restPath(p) {
-  // BASE_URL kann mit oder ohne /iPCM kommen
-  // wir liefern nur den "inneren" Pfad zurück
-  if (!p.startsWith('/')) p = '/' + p;
-  return p.replace(/^\/+/, '/'); // normalize
-}
+// Debug-Log (optional)
+app.use((req,_res,next)=>{ if (req.path.startsWith('/api/')) console.log('[API]', req.method, req.originalUrl); next(); });
 
-// dann:
-async function fetchFacilityOccupancyById(facilityId, locale) {
-  const q = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  return gbGet(restPath(`iPCM/rest/v1/operation/occupancies/facility/${encodeURIComponent(facilityId)}${q}`));
-}
+// ── Listen (exakt wie spezifiziert)
+app.get('/api/facilities',           (req,res)=> proxyGet(res, '/services/v4x0/facilities',          qs(req)));
+app.get('/api/facility-definitions', (req,res)=> proxyGet(res, '/services/v4x0/facilitydefinitions', qs(req)));
+app.get('/api/features',             (req,res)=> proxyGet(res, '/services/v4x0/features',            qs(req)));
+app.get('/api/filecontent',          (req,res)=> proxyGet(res, '/services/v4x0/filecontent',         qs(req)));
+app.get('/api/occupancies',          (req,res)=> proxyGet(res, '/services/v4x0/occupancies',         qs(req)));
 
-async function fetchFacilityStatusById(facilityId, locale) {
-  const q = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  return gbGet(restPath(`iPCM/rest/v1/operation/status/facility/${encodeURIComponent(facilityId)}${q}`));
-}
+// ── E-Charging
+app.get('/api/charging-stations',    (req,res)=> proxyGet(res, '/services/charging/v1x0/charging-stations', qs(req)));
+app.get('/api/charging-files/:fileAttachmentId',
+  (req,res)=> proxyGet(res, `/services/charging/v1x0/files/${encodeURIComponent(req.params.fileAttachmentId)}`));
 
-// ---- (Platzhalter bis du Facilities/Features-REST bestätigst) ----
-async function fetchFacilities() {
-  // falls eure Stammdaten auch unter /iPCM/rest/... liegen, bitte Pfad durchgeben
-  return getJson('/services/v4x0/facilities');
-}
-async function fetchFeatures() {
-  return getJson('/services/v4x0/features');
-}
+// ── Facility-Details per ID (kein /{id} upstream → Filter-Fallbacks; embed passt durch)
+app.get('/api/facilities/:id', async (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const rawQuery = qs(req); // z. B. embed=attributes,facilityStatus
+  const addTail = (hasQ) => (rawQuery ? (hasQ ? `&${rawQuery}` : `?${rawQuery}`) : '');
 
-// ---- Mapping Helfer ----
-function mapFeaturesForFacility(allFeatures, facilityId) {
-  const f = (allFeatures || []).filter(x => String(x.facilityId) === String(facilityId));
-  const has = (key) => f.some(x => (x.type || x.key || x.code) === key || (x.name || '').toLowerCase() === key);
-  const features = [];
-  if (has('public_restrooms') || has('toilet')) features.push('public_restrooms');
-  if (has('surveillance') || has('video_surveillance')) features.push('surveillance');
-  if (has('roofed') || has('indoor')) features.push('roofed');
-  if (has('elevator')) features.push('elevator');
-  if (has('guidance_system') || has('dynamic_guidance')) features.push('guidance_system');
-  if (has('disabled_parking_spaces') || has('accessible')) features.push('disabled_parking_spaces');
-  if (has('stork_parking_spaces') || has('family')) features.push('stork_parking_spaces');
-  if (has('long_term_parking') || has('contract')) features.push('long_term_parking');
-  if (has('bicycle') || has('bike')) features.push('bicycle');
+  // typische Varianten (einige Systeme akzeptieren id, andere facilityId; OData-like $filter als Fallback)
+  const candidates = [
+    `/services/v4x0/facilities?id=${encodeURIComponent(id)}${addTail(true)}`,
+    `/services/v4x0/facilities?facilityId=${encodeURIComponent(id)}${addTail(true)}`,
+    `/services/v4x0/facilities?$filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
+    `/services/v4x0/facilities?filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
+  ];
 
-  const paymentOptions = [];
-  if (has('payment_cash')) paymentOptions.push('payment_cash');
-  if (has('payment_ec') || has('payment_girocard')) paymentOptions.push('payment_ec');
-  if (has('payment_mastercard')) paymentOptions.push('payment_mastercard');
-  if (has('payment_visa')) paymentOptions.push('payment_visa');
-  if (has('payment_wien_mobile') || has('payment_mobile')) paymentOptions.push('payment_wien_mobile');
-  if (has('payment_post_card') || has('payment_postcard')) paymentOptions.push('payment_post_card');
-  if (has('payment_multipurposecard') || has('payment_mpc')) paymentOptions.push('payment_multipurposecard');
-
-  return { features, paymentOptions };
-}
-function combinedStatusFromOccupancy(occ) {
-  if (!occ || !Array.isArray(occ.counters) || !occ.counters.length) return 'unknown';
-  const rank = { full: 3, tight: 2, free: 1, unknown: 0 };
-  let best = 'unknown';
-  for (const c of occ.counters) {
-    const s = String(c.status || '').toLowerCase();
-    if (rank[s] > rank[best]) best = s;
-  }
-  if (best !== 'unknown') return best;
-  let max = 0, free = 0;
-  for (const c of occ.counters) {
-    if (typeof c.maxPlaces === 'number') max += c.maxPlaces;
-    if (typeof c.freePlaces === 'number') free += c.freePlaces;
-  }
-  if (max <= 0) return 'unknown';
-  const ratio = (max - free) / max;
-  if (ratio <= 0.60) return 'free';
-  if (ratio <= 0.90) return 'tight';
-  return 'full';
-}
-function addressToStreetLines(fac) {
-  const line1 = [fac.address?.street, fac.address?.houseNo].filter(Boolean).join(' ').trim() || fac.street || '';
-  const line2 = [fac.address?.zip || fac.zip, fac.address?.city || fac.city].filter(Boolean).join(' ') || '';
-  return [line1, line2].filter(Boolean);
-}
-function pickImageUrl(fac) {
-  if (fac.images?.length) return fac.images[0].url;
-  if (fac.snapshotUrl) return fac.snapshotUrl;
-  return null;
-}
-function mapRestrictions(fac) {
-  if (typeof fac.clearanceMeters === 'number') return `Einfahrtshöhe: ${fac.clearanceMeters.toFixed(2).replace('.', ',')}m`;
-  if (typeof fac.heightLimitCm === 'number') return `Einfahrtshöhe: ${(fac.heightLimitCm / 100).toFixed(2).replace('.', ',')}m`;
-  return null;
-}
-function mapCapacity(fac) { return fac.capacityTotal ?? fac.totalCapacity ?? null; }
-function mapLongTermUrl(fac) { return fac.contractUrl || null; }
-function openingTimesToHtml() {
-  return `<table width="100%" cellpadding="0" cellspacing="0"><tr><td><label>Täglich (auch Feiertage)</label></td><td>0 - 24 Uhr</td></tr></table>`;
-}
-function ratesToHtml(rates) {
-  const hour = (rates && rates.hourly) || '1,50 €';
-  const dayMax = (rates && rates.dayMax) || '10,00 €';
-  const monthly = (rates && rates.monthlyLongTerm) || '65,00 €';
-  return `<table style="width: 100%;">
-<tbody>
-<tr><td><span style="color: #ff6600;"><strong>Standardtarif</strong></span></td><td align="right" nowrap="nowrap">&nbsp;</td></tr>
-<tr><td>pro Stunde</td><td align="right" nowrap="nowrap">${hour}</td></tr>
-<tr><td>Tageshöchstsatz</td><td align="right" nowrap="nowrap">${dayMax}</td></tr>
-<tr><td>&nbsp;</td><td align="right" nowrap="nowrap">&nbsp;</td></tr>
-<tr><td><span style="color: #ff6600;"><strong>Dauerstellplatz</strong></span></td><td align="right" nowrap="nowrap">&nbsp;</td></tr>
-<tr><td nowrap="nowrap">Dauerparkplatz pro Monat</td><td align="right" nowrap="nowrap">${monthly}</td></tr>
-</tbody></table>`;
-}
-function descriptionHtml() {
-  const url = 'https://www.goldbeck.de/fileadmin/Redaktion/Unternehmen/Dienstleistungen/GPS/forms/180813_Einstellbedingungen_ohne_ParkingCard_DSGVO.pdf';
-  return `<p><a href="${url}" target="_blank">&nbsp;</a></p>`;
-}
-function toTargetObject({ fac, features, occupancy }) {
-  const { features: featList, paymentOptions } = mapFeaturesForFacility(features, fac.id || fac.facilityId);
-  const combinedStatus = combinedStatusFromOccupancy(occupancy);
-  return {
-    id: Number(fac.id ?? fac.facilityId),
-    name: fac.name || '',
-    city: fac.city || fac.address?.city || '',
-    lat: Number(fac.lat ?? fac.latitude),
-    lng: Number(fac.lng ?? fac.longitude),
-    imageUrl: pickImageUrl(fac),
-    rates: ratesToHtml(fac.rates),
-    country: fac.country || 'DE',
-    description: descriptionHtml(),
-    openingTimes: openingTimesToHtml(fac.openingTimes),
-    restrictions: mapRestrictions(fac),
-    features: featList,
-    paymentOptions,
-    streetLines: addressToStreetLines(fac),
-    urlPrebooking: fac.prebookingUrl || null,
-    urlLongTermParking: mapLongTermUrl(fac),
-    capacityTotal: mapCapacity(fac),
-    combinedStatus,
-  };
-}
-
-// ---- API: fertiges Facility-Objekt ----
-app.get('/api/facility-object/:id', async (req, res) => {
-  const id = String(req.params.id).trim();
-  const locale = req.query.locale;
   try {
-    const [facilities, features, occupancy] = await Promise.all([
-      fetchFacilities(),
-      fetchFeatures(),
-      fetchFacilityOccupancyById(id, locale),
-      // fetchFacilityStatusById(id, locale) // aktuell nicht im Zielformat genutzt
-    ]);
-    const fac = (facilities || []).find(f => String(f.id) === id || String(f.facilityId) === id)
-      || (facilities?.content || []).find(f => String(f.id) === id || String(f.facilityId) === id);
-    if (!fac) return res.status(404).json({ error: 'Facility not found', id });
-    return res.json(toTargetObject({ fac, features, occupancy }));
+    for (const path of candidates) {
+      const { r, ct, url } = await upstreamGet(path, '');
+      if ((r.statusCode||0) < 200 || (r.statusCode||0) >= 400) continue;
+
+      res.setHeader('x-upstream-url', url);
+
+      if (!isJsonCT(ct)) {
+        res.status(r.statusCode || 200);
+        res.setHeader('Content-Type', ct || 'application/octet-stream');
+        return r.body.pipe(res);
+      }
+
+      const data = await r.body.json();
+
+      // Direktobjekt?
+      if (data && typeof data === 'object' && !Array.isArray(data) && (data.id || data.facilityId)) {
+        return res.json(data);
+      }
+
+      // Wrapper/Array → bestes Match ziehen
+      const arr = Array.isArray(data) ? data : (Object.values(data || {}).find(v => Array.isArray(v)) || []);
+      const hit = Array.isArray(arr)
+        ? (arr.find(x => String(x?.id) === id || String(x?.facilityId) === id) || (arr.length === 1 ? arr[0] : null))
+        : null;
+
+      if (hit) return res.json(hit);
+      // sonst nächste Variante testen
+    }
+
+    return res.status(404).json({ error: 'Not found', id });
   } catch (err) {
-    console.error('facility-object error:', err?.message || err);
-    return res.status(500).json({ error: 'Failed to build facility object', detail: String(err?.message || err) });
+    console.error('facilities/:id error:', err?.message || err);
+    return res.status(502).json({ error:'Bad gateway', detail:String(err?.message || err) });
   }
 });
 
-// ---- (optional) Passthrough-Beispiele wie im ZIP ----
-app.get('/api/facilities', (req, res) => proxyGet(res, '/services/v4x0/facilities' + qs(req)));
-app.get('/api/features',   (req, res) => proxyGet(res, '/services/v4x0/features'   + qs(req)));
-
-// ---- Start ----
-app.listen(PORT, () => {
-  console.log(`Goldbeck test proxy on http://localhost:${PORT} (base: ${BASE_URL})`);
+// ── Health
+app.get('/api/health', (req,res)=>{
+  res.json({ ok:true, baseUrl: BASE_URL, hasAuth: Boolean(GB_USER && GB_PASS) });
 });
 
+// ── Optional: 1:1 Passthrough für alles unter /api/services/* → /ipaw/services/*
+app.get('/api/services/*', async (req,res)=>{
+  // behält /services/... bei, ersetzt nur das /api Präfix
+  const upstreamPath = req.originalUrl.replace(/^\/api/, ''); // → /services/...
+  try {
+    const { r, ct, url } = await upstreamGet(upstreamPath, '');
+    res.setHeader('x-upstream-url', url);
+    res.status(r.statusCode || 200);
+    if (isJsonCT(ct)) {
+      const j = await r.body.json(); return res.json(j);
+    }
+    res.setHeader('Content-Type', ct || 'application/octet-stream');
+    return r.body.pipe(res);
+  } catch (e) {
+    console.error('passthrough error:', e?.message || e);
+    return res.status(502).json({ error:'Bad gateway', detail:String(e?.message || e) });
+  }
+});
 
+app.listen(PORT, ()=> {
+  console.log(`Goldbeck Proxy läuft: http://localhost:${PORT}  (base: ${BASE_URL})`);
+});
