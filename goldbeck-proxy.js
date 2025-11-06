@@ -1,252 +1,86 @@
-// goldbeck-proxy.js (CommonJS)
+// goldbeck-proxy.js
 require('dotenv/config');
 const express = require('express');
 const { request } = require('undici');
-const path = require('path');
 
 const app = express();
+app.use(express.json());
 
-// ---- ENV ----
-const BASE_URL = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/ipaw';
-const GB_USER  = process.env.GB_USER || 'CC webservicegps';
-const GB_PASS  = process.env.GB_PASS || 'webservice';
-const PORT     = Number(process.env.PORT || 4000);
+// ──────────────────────────────────────────────────────────────────────────────
+// ENV
+// ──────────────────────────────────────────────────────────────────────────────
+const BASE_URL   = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/ipaw';
+const GB_USER    = process.env.GB_USER || process.env.GB_USERNAME || '';
+const GB_PASS    = process.env.GB_PASS || process.env.GB_PASSWORD || '';
+const PORT       = process.env.PORT || 3030;
 
-// Basic Auth Header (serverseitig)
-const basic = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64');
-
-// --- kleine Hilfen ---
-function isJsonContentType(ct = '') {
-  return /\bjson\b/i.test(ct); // robust: matcht auch application/hal+json etc.
-}
-function qs(req) {
-  return req.url.split('?')[1] || '';
-}
-
-// Helper: GET mit Basic-Auth + Query passthrough
-async function proxyGet(res, upstreamPath, query = '') {
-  const url = `${BASE_URL}${upstreamPath}${query ? `?${query}` : ''}`;
-  try {
-    const r = await request(url, {
-      method: 'GET',
-      headers: { Authorization: basic, Accept: 'application/json,*/*' },
-      headersTimeout: 15000,
-      bodyTimeout: 15000,
-    });
-
-    const ct = r.headers['content-type'] || '';
-    res.status(r.statusCode || 200);
-
-    if (isJsonContentType(ct)) {
-      const json = await r.body.json();
-      return res.json(json);
-    } else {
-      // non-JSON (z. B. Binärdaten) durchstreamen
-      res.setHeader('Content-Type', ct || 'application/octet-stream');
-      return r.body.pipe(res);
-    }
-  } catch (err) {
-    console.error('Proxy error:', upstreamPath, err?.message || err);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
-  }
-}
-
-// Nur für flexible Varianten: Upstream-Fetch OHNE sofort zu antworten (damit wir Fallbacks probieren können)
-async function getUpstreamRaw(pathAndQuery) {
-  const url = `${BASE_URL}${pathAndQuery}`;
-  const r = await request(url, {
-    method: 'GET',
-    headers: { Authorization: basic, Accept: 'application/json,*/*' },
-    headersTimeout: 15000,
-    bodyTimeout: 15000,
+// ──────────────────────────────────────────────────────────────────────────────
+/** Helper: HTTP GET mit BasicAuth und JSON-Parsing */
+async function gbGet(path, { searchParams } = {}) {
+  const url = new URL(path, BASE_URL);
+  if (searchParams) Object.entries(searchParams).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
   });
-  const ct = r.headers['content-type'] || '';
-  return { r, ct, url };
-}
 
-// Static Test UI
-app.use('/', express.static(path.join(__dirname, 'public')));
-
-// ---- API Proxy Routen ----
-
-// E-Charging
-app.get('/api/charging-stations', (req, res) =>
-  proxyGet(res, '/services/charging/v1x0/charging-stations', qs(req))
-);
-app.get('/api/charging-files/:fileAttachmentId', (req, res) =>
-  proxyGet(res, `/services/charging/v1x0/files/${encodeURIComponent(req.params.fileAttachmentId)}`)
-);
-
-// Garagen / Räume / Features / Filecontent / Parkhäuser (Listen)
-app.get('/api/facilities', (req, res) =>
-  proxyGet(res, '/services/v4x0/facilities', qs(req))
-);
-app.get('/api/facility-definitions', (req, res) =>
-  proxyGet(res, '/services/v4x0/facilitydefinitions', qs(req))
-);
-app.get('/api/features', (req, res) =>
-  proxyGet(res, '/services/v4x0/features', qs(req))
-);
-app.get('/api/filecontent', (req, res) =>
-  proxyGet(res, '/services/v4x0/filecontent', qs(req))
-);
-app.get('/api/occupancies', (req, res) =>
-  proxyGet(res, '/services/v4x0/occupancies', qs(req))
-);
-
-// 👉 Facility-Details per ID (mit Query-Passthrough für z. B. embed=…)
-// Da upstream /{id} nicht garantiert ist, nutzen wir Query-Varianten.
-app.get('/api/facilities/:id', async (req, res) => {
-  const id = String(req.params.id).trim();
-  const query = qs(req);
-
-  // embed & weitere Query-Parameter beibehalten
-  // Für die Varianten, die selbst schon ?… enthalten, hängen wir &query an.
-  const addTail = (hasQ) => (query ? (hasQ ? `&${query}` : `?${query}`) : '');
-
-  const candidates = [
-    `/services/v4x0/facilities?id=${encodeURIComponent(id)}${addTail(true)}`,
-    `/services/v4x0/facilities?facilityId=${encodeURIComponent(id)}${addTail(true)}`,
-    `/services/v4x0/facilities?$filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
-    `/services/v4x0/facilities?filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
-  ];
-
-  try {
-    for (const pathAndQuery of candidates) {
-      const { r, ct } = await getUpstreamRaw(pathAndQuery);
-
-      // 2xx oder 304 → versuchen zu deuten
-      if ((r.statusCode || 0) >= 200 && (r.statusCode || 0) < 400) {
-        if (isJsonContentType(ct)) {
-          const data = await r.body.json();
-
-          // Einzelobjekt direkt?
-          if (data && typeof data === 'object' && !Array.isArray(data) && (data.id || data.facilityId)) {
-            return res.json(data);
-          }
-
-          // Wrapper / Arrays → bestes Match ziehen
-          const arr = Array.isArray(data) ? data : (Object.values(data || {}).find(v => Array.isArray(v)) || []);
-          const hit = Array.isArray(arr)
-            ? (arr.find(x => String(x?.id) === id || String(x?.facilityId) === id) || (arr.length === 1 ? arr[0] : null))
-            : null;
-
-          if (hit) return res.json(hit);
-          // Sonst nächste Variante
-          continue;
-        } else {
-          // Non-JSON (unerwartet) → direkt durchreichen
-          res.status(r.statusCode || 200);
-          res.setHeader('Content-Type', ct || 'application/octet-stream');
-          return r.body.pipe(res);
-        }
-      }
-      // 4xx/5xx → nächste Variante
-    }
-
-    // Wenn alle Varianten nichts liefern:
-    return res.status(404).json({ error: 'Not found', id });
-  } catch (err) {
-    console.error('Facility-by-id error:', err?.message || err);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
-  }
-});
-
-// Health
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, baseUrl: BASE_URL, hasAuth: Boolean(GB_USER && GB_PASS) });
-});
-
-// Fallback: /api/* → 1:1 an BASE_URL weiterreichen (praktisch für Tests)
-app.get('/api/*', async (req, res) => {
-  try {
-    const upstreamPath = req.originalUrl.replace(/^\/api/, '');
-    const url = `${BASE_URL}${upstreamPath}`;
-    const r = await request(url, {
-      method: 'GET',
-      headers: { Authorization: basic, Accept: 'application/json,*/*' },
-      headersTimeout: 15000,
-      bodyTimeout: 15000,
-    });
-    const ct = r.headers['content-type'] || '';
-    res.status(r.statusCode || 200);
-    if (isJsonContentType(ct)) {
-      const json = await r.body.json();
-      return res.json(json);
-    } else {
-      res.setHeader('Content-Type', ct || 'application/octet-stream');
-      return r.body.pipe(res);
-    }
-  } catch (err) {
-    console.error('API passthrough error:', err?.message || err);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
-  }
-});
-
-async function gbGetJSON(fullPath) {
-  const url = `${BASE_URL}${fullPath}`;
-  const r = await request(url, {
+  const res = await request(url, {
     method: 'GET',
-    headers: { Authorization: basic, Accept: 'application/json,*/*' },
-    headersTimeout: 15000,
-    bodyTimeout: 15000,
+    headers: {
+      accept: 'application/json',
+      authorization: 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64'),
+    },
   });
-  if ((r.statusCode || 500) >= 400) {
-    const t = await r.body.text();
-    throw new Error(`${r.statusCode} ${url}: ${t}`);
+
+  if (res.statusCode >= 400) {
+    const text = await res.body.text();
+    throw new Error(`GB GET ${url} → ${res.statusCode}: ${text}`);
   }
-  return r.body.json();
+  const ct = res.headers['content-type'] || '';
+  if (ct.includes('application/json')) return res.body.json();
+  return res.body.text();
 }
 
-// Facilities (wir nutzen deine vorhandenen Query-Varianten; hier: by id)
-async function fetchFacilityById(id, extraQuery = '') {
-  const tail = extraQuery ? `&${extraQuery}` : '';
-  const tries = [
-    `/services/v4x0/facilities?id=${encodeURIComponent(id)}${tail}`,
-    `/services/v4x0/facilities?facilityId=${encodeURIComponent(id)}${tail}`,
-    `/services/v4x0/facilities?$filter=${encodeURIComponent(`id eq ${id}`)}${tail}`,
-    `/services/v4x0/facilities?filter=${encodeURIComponent(`id eq ${id}`)}${tail}`,
-  ];
-  for (const path of tries) {
-    try {
-      const data = await gbGetJSON(path);
-      if (data && typeof data === 'object' && !Array.isArray(data) && (data.id || data.facilityId)) return data;
-      if (Array.isArray(data) && data.length) {
-        const match = data.find(f => String(f.id) === String(id) || String(f.facilityId) === String(id)) || data[0];
-        if (match) return match;
-      }
-      const arr = data?.content && Array.isArray(data.content) ? data.content : null;
-      if (arr?.length) {
-        const match = arr.find(f => String(f.id) === String(id) || String(f.facilityId) === String(id)) || arr[0];
-        if (match) return match;
-      }
-    } catch { /* nächsten Versuch */ }
-  }
-  return null;
+// ──────────────────────────────────────────────────────────────────────────────
+// Datenzugriff
+// (Hinweis: Facilities/Features Endpunkte bleiben placeholder bis du mir deren
+// Swagger zeigst. Die Occupancy/Status-Routen sind hier präzise umgesetzt.)
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function fetchFacilities() {
+  // 👇 Passe diesen Pfad an deine Facilities-API an, falls abweichend.
+  return gbGet('/services/v4x0/facilities');
 }
 
-async function fetchAllFeatures() {
-  return gbGetJSON('/services/v4x0/features');
+async function fetchFeatures() {
+  // 👇 Passe diesen Pfad an deine Features-API an, falls abweichend.
+  return gbGet('/services/v4x0/features');
 }
 
-async function fetchOccupancyByFacilityId(id, locale) {
+function restPath(p) {
+  // BASE_URL kann mit oder ohne /iPCM kommen
+  // wir liefern nur den "inneren" Pfad zurück
+  if (!p.startsWith('/')) p = '/' + p;
+  return p.replace(/^\/+/, '/'); // normalize
+}
+
+// dann:
+async function fetchFacilityOccupancyById(facilityId, locale) {
   const q = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  return gbGetJSON(`/rest/v1/operation/occupancies/facility/${encodeURIComponent(id)}${q}`);
+  return gbGet(restPath(`rest/v1/operation/occupancies/facility/${encodeURIComponent(facilityId)}${q}`));
 }
 
-async function fetchStatusByFacilityId(id, locale) {
+async function fetchFacilityStatusById(facilityId, locale) {
   const q = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  try {
-    return await gbGetJSON(`/rest/v1/operation/status/facility/${encodeURIComponent(id)}${q}`);
-  } catch {
-    return null; // nicht kritisch
-  }
+  return gbGet(restPath(`rest/v1/operation/status/facility/${encodeURIComponent(facilityId)}${q}`));
 }
 
-// Mapper
+// ──────────────────────────────────────────────────────────────────────────────
+// Mapping-Helfer
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Feature-Mapping von API → deine Keys */
 function mapFeaturesForFacility(allFeatures, facilityId) {
   const f = (allFeatures || []).filter(x => String(x.facilityId) === String(facilityId));
-  const has = (key) => f.some(x => (x.type || x.key || x.code) === key || (x.name || '').toLowerCase() === key);
+  const has = (key) => f.some(x => (x.type || x.key) === key);
 
   const features = [];
   if (has('public_restrooms') || has('toilet')) features.push('public_restrooms');
@@ -271,64 +105,17 @@ function mapFeaturesForFacility(allFeatures, facilityId) {
   return { features, paymentOptions };
 }
 
-function combinedStatusFromOccupancy(occ) {
-  if (!occ || !Array.isArray(occ.counters) || !occ.counters.length) return 'unknown';
-
-  const rank = { full: 3, tight: 2, free: 1, unknown: 0 };
-  let best = 'unknown';
-  for (const c of occ.counters) {
-    const s = String(c.status || '').toLowerCase();
-    if (rank[s] > rank[best]) best = s;
-  }
-  if (best !== 'unknown') return best;
-
-  let max = 0, free = 0;
-  for (const c of occ.counters) {
-    if (typeof c.maxPlaces === 'number') max += c.maxPlaces;
-    if (typeof c.freePlaces === 'number') free += c.freePlaces;
-  }
-  if (max <= 0) return 'unknown';
-  const ratio = (max - free) / max;
-  if (ratio <= 0.60) return 'free';
-  if (ratio <= 0.90) return 'tight';
-  return 'full';
-}
-
-function addressToStreetLines(fac) {
-  const line1 = [fac.address?.street, fac.address?.houseNo].filter(Boolean).join(' ').trim() || fac.street || '';
-  const line2 = [fac.address?.zip || fac.zip, fac.address?.city || fac.city].filter(Boolean).join(' ') || '';
-  return [line1, line2].filter(Boolean);
-}
-
-function pickImageUrl(fac) {
-  if (fac.images?.length) return fac.images[0].url;
-  if (fac.snapshotUrl) return fac.snapshotUrl;
-  return null;
-}
-
-function mapRestrictions(fac) {
-  if (typeof fac.clearanceMeters === 'number') return `Einfahrtshöhe: ${fac.clearanceMeters.toFixed(2).replace('.', ',')}m`;
-  if (typeof fac.heightLimitCm === 'number') return `Einfahrtshöhe: ${(fac.heightLimitCm / 100).toFixed(2).replace('.', ',')}m`;
-  return null;
-}
-
-function mapCapacity(fac) {
-  return fac.capacityTotal ?? fac.totalCapacity ?? null;
-}
-
-function mapLongTermUrl(fac) {
-  return fac.contractUrl || null;
-}
-
-function openingTimesToHtml(_opening) {
-  // bis echte Quelle verfügbar → 24/7
+/** Öffnungszeiten → HTML-Table (Fallback 24/7 bis Opening-Quelle steht) */
+function openingTimesToHtml() {
   return `<table width="100%" cellpadding="0" cellspacing="0"><tr><td><label>Täglich (auch Feiertage)</label></td><td>0 - 24 Uhr</td></tr></table>`;
 }
 
+/** Tarife → HTML-Table (bis eigene Tarifquelle vorhanden) */
 function ratesToHtml(rates) {
   const hour = (rates && rates.hourly) || '1,50 €';
   const dayMax = (rates && rates.dayMax) || '10,00 €';
   const monthly = (rates && rates.monthlyLongTerm) || '65,00 €';
+
   return `<table style="width: 100%;">
 <tbody>
 <tr>
@@ -359,24 +146,96 @@ function ratesToHtml(rates) {
 </table>`;
 }
 
-function descriptionHtml() {
+/** Adresse → streetLines */
+function addressToStreetLines(fac) {
+  const line1 = [fac.address?.street, fac.address?.houseNo].filter(Boolean).join(' ').trim() || fac.street || '';
+  const line2 = [fac.address?.zip || fac.zip, fac.address?.city || fac.city].filter(Boolean).join(' ') || '';
+  return [line1, line2].filter(Boolean);
+}
+
+/** Bild-URL wählen */
+function pickImageUrl(fac) {
+  if (fac.images?.length) return fac.images[0].url;
+  if (fac.snapshotUrl) return fac.snapshotUrl;
+  return null;
+}
+
+/** Restriktionen (Einfahrtshöhe) */
+function mapRestrictions(fac) {
+  if (typeof fac.clearanceMeters === 'number') {
+    return `Einfahrtshöhe: ${fac.clearanceMeters.toFixed(2).replace('.', ',')}m`;
+  }
+  if (typeof fac.heightLimitCm === 'number') {
+    return `Einfahrtshöhe: ${(fac.heightLimitCm / 100).toFixed(2).replace('.', ',')}m`;
+  }
+  return null;
+}
+
+/** Kapazität */
+function mapCapacity(fac) {
+  return fac.capacityTotal ?? fac.totalCapacity ?? null;
+}
+
+/** Long-Term URL */
+function mapLongTermUrl(fac) {
+  return fac.contractUrl || null;
+}
+
+/** Beschreibung / AGB-Link */
+function mapDescriptionHtml() {
   const url = 'https://www.goldbeck.de/fileadmin/Redaktion/Unternehmen/Dienstleistungen/GPS/forms/180813_Einstellbedingungen_ohne_ParkingCard_DSGVO.pdf';
   return `<p><a href="${url}" target="_blank">&nbsp;</a></p>`;
 }
 
+/** NEU: combinedStatus aus Occupancy-Countern aggregieren */
+function combinedStatusFromOccupancy(occ) {
+  if (!occ || !Array.isArray(occ.counters) || occ.counters.length === 0) return 'unknown';
+
+  // 1) Wenn irgendein Counter diskret "FULL"/"TIGHT"/"FREE" liefert, bevorzugt das (strengste gewinnt)
+  const statusRank = { full: 3, tight: 2, free: 1, unknown: 0 };
+  let best = 'unknown';
+  for (const c of occ.counters) {
+    const s = String(c.status || '').toLowerCase();
+    if (s === 'full' && statusRank[s] > statusRank[best]) best = 'full';
+    else if (s === 'tight' && statusRank[s] > statusRank[best]) best = 'tight';
+    else if (s === 'free' && statusRank[s] > statusRank[best]) best = 'free';
+  }
+  if (best !== 'unknown') return best;
+
+  // 2) Sonst auf Basis (maxPlaces, freePlaces) aggregieren
+  let sumMax = 0;
+  let sumFree = 0;
+  for (const c of occ.counters) {
+    if (typeof c.maxPlaces === 'number') sumMax += c.maxPlaces;
+    if (typeof c.freePlaces === 'number') sumFree += c.freePlaces;
+  }
+  if (sumMax <= 0) return 'unknown';
+
+  const occupied = sumMax - sumFree;
+  const ratio = occupied / sumMax; // 0..1
+  if (ratio <= 0.60) return 'free';
+  if (ratio <= 0.90) return 'tight';
+  return 'full';
+}
+
+/**
+ * Haupt-Mapping: API-Facility + Features + Occupancy → Zielobjekt
+ * (Status wird aktuell nur geladen, nicht in das Zielformat geschrieben.)
+ */
 function toTargetObject({ fac, features, occupancy /*, status*/ }) {
-  const { features: featList, paymentOptions } = mapFeaturesForFacility(features, fac.id || fac.facilityId);
+  const { features: featList, paymentOptions } = mapFeaturesForFacility(features, fac.id);
   const combinedStatus = combinedStatusFromOccupancy(occupancy);
+
   return {
-    id: Number(fac.id ?? fac.facilityId),
+    id: Number(fac.id),
     name: fac.name || '',
     city: fac.city || fac.address?.city || '',
-    lat: Number(fac.lat ?? fac.latitude),
-    lng: Number(fac.lng ?? fac.longitude),
+    lat: Number(fac.lat || fac.latitude),
+    lng: Number(fac.lng || fac.longitude),
     imageUrl: pickImageUrl(fac),
     rates: ratesToHtml(fac.rates),
     country: fac.country || 'DE',
-    description: descriptionHtml(),
+    description: mapDescriptionHtml(fac),
     openingTimes: openingTimesToHtml(fac.openingTimes),
     restrictions: mapRestrictions(fac),
     features: featList,
@@ -389,30 +248,43 @@ function toTargetObject({ fac, features, occupancy /*, status*/ }) {
   };
 }
 
-// Route: fertiges Facility-Objekt
-app.get('/api/facility-object/:id', async (req, res) => {
-  const id = String(req.params.id).trim();
-  const extra = req.url.split('?')[1] || ''; // Query passthrough an Facilities
-  const locale = new URLSearchParams(extra).get('locale') || undefined;
+// ──────────────────────────────────────────────────────────────────────────────
+// Route: Facility by ID → liefert dein gewünschtes Objekt
+// ──────────────────────────────────────────────────────────────────────────────
+
+app.get('/api/facilities/:id', async (req, res) => {
+  const id = String(req.params.id);
+  const locale = req.query.locale; // optional weiterreichen
 
   try {
-    const [fac, allFeatures, occ/*, stat*/] = await Promise.all([
-      fetchFacilityById(id, extra),
-      fetchAllFeatures(),
-      fetchOccupancyByFacilityId(id, locale),
-      // fetchStatusByFacilityId(id, locale) // nur wenn du es später brauchst
+    // Stammdaten + Features + Occupancy (per Facility) + (optional) Status (per Facility)
+    const [facilities, features, occupancy, status] = await Promise.all([
+      fetchFacilities(),
+      fetchFeatures(),
+      fetchFacilityOccupancyById(id, locale),
+      fetchFacilityStatusById(id, locale).catch(() => null), // nicht kritisch
     ]);
 
+    const fac = (facilities || []).find(f =>
+      String(f.id) === id || String(f.facilityId) === id
+    );
     if (!fac) return res.status(404).json({ error: 'Facility not found', id });
 
-    const payload = toTargetObject({ fac, features: allFeatures, occupancy: occ });
+    const payload = toTargetObject({ fac, features, occupancy, status });
     return res.json(payload);
   } catch (err) {
-    console.error('facility-object error', err?.message || err);
-    return res.status(500).json({ error: 'Failed to build facility object', detail: String(err?.message || err) });
+    console.error(err);
+    return res.status(500).json({
+      error: 'Failed to build facility object',
+      message: err.message,
+    });
   }
 });
 
+// Health
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+// Start
 app.listen(PORT, () => {
-  console.log(`Goldbeck test proxy on http://localhost:${PORT} (base: ${BASE_URL})`);
+  console.log(`Goldbeck proxy up on :${PORT}`);
 });
