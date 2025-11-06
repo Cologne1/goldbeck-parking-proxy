@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const out = $('out');
 const count = $('count');
 
-// sichere JSON-Ausgabe
+// sichere Ausgabe
 const show = (data) => {
   const arr = pickArray(data);
   count.textContent = String(Array.isArray(arr) ? arr.length : 0);
@@ -51,7 +51,7 @@ function syncFieldState() {
     standortEl.disabled = true;
     standortEl.value = '';
   } else if (ep === '/api/charging-stations') {
-    defEl.disabled = false;   // optional sinnvoll
+    defEl.disabled = false;
     standortEl.disabled = false; // optional facilityId
   } else if (ep === '/api/occupancies') {
     defEl.disabled = true;
@@ -60,6 +60,34 @@ function syncFieldState() {
   }
 }
 $('endpoint').addEventListener('change', syncFieldState);
+
+// Dropdown „Standort-Typ“ dynamisch befüllen (keine Defaults!)
+async function hydrateDefinitionsSelect() {
+  const sel = $('def');
+  sel.innerHTML = `<option value="">– alle –</option>`;
+  try {
+    const res = await fetch('/api/facility-definitions');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const defs = pickArray(data);
+    defs.forEach(d => {
+      const id = d?.id ?? d?.definitionId;
+      const name = d?.name || d?.label || String(id ?? '');
+      if (id != null) {
+        const opt = document.createElement('option');
+        opt.value = String(id);
+        opt.textContent = `${id} — ${name}`;
+        sel.appendChild(opt);
+      }
+    });
+  } catch (e) {
+    // minimaler Hinweis, kein Default
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '– Fehler beim Laden –';
+    sel.appendChild(opt);
+  }
+}
 
 // Haupt-Laden
 $('btn-load').onclick = async function handleLoad() {
@@ -70,7 +98,7 @@ $('btn-load').onclick = async function handleLoad() {
 
   const params = new URLSearchParams();
 
-  // mapping: deutsch im UI, echte Parameternamen zur API
+  // UI → API-Parameter (nur setzen, wenn vorhanden)
   if (def && (ep === '/api/facilities' || ep === '/api/features' || ep === '/api/facility-definitions' || ep === '/api/charging-stations')) {
     params.set('definitionId', def);
   }
@@ -83,7 +111,6 @@ $('btn-load').onclick = async function handleLoad() {
   }
 
   const url = ep + (params.toString() ? `?${params.toString()}` : '');
-
   out.textContent = 'Lade ' + url + ' …';
   count.textContent = '…';
 
@@ -97,7 +124,6 @@ $('btn-load').onclick = async function handleLoad() {
       return;
     }
 
-    // robust: alle *json-CTs akzeptieren
     const payload = /\bjson\b/i.test(ct) ? await res.json() : await res.text();
     const arr = typeof payload === 'string'
       ? [{ hinweis: 'Nicht-JSON Antwort', ausschnitt: payload.slice(0, 1000) }]
@@ -131,7 +157,6 @@ function renderCatalog(rows) {
     `;
   }).join('');
 
-  // Klick → Details
   Array.from(tblBody.querySelectorAll('.fac-link')).forEach((a) => {
     a.addEventListener('click', function (e) {
       e.preventDefault();
@@ -142,6 +167,8 @@ function renderCatalog(rows) {
 }
 
 document.getElementById('btn-load-defs').onclick = async function loadDefs() {
+  // befüllt Dropdown UND Tabelle
+  await hydrateDefinitionsSelect();
   try {
     const res = await fetch('/api/facility-definitions');
     const json = await res.json();
@@ -180,7 +207,7 @@ document.getElementById('btn-load-fac').onclick = async function loadFacs() {
       type: 'Standort',
       id: f && (f.id || f.facilityId),
       name: f && (f.name || f.label || ''),
-      extra: `Typ-ID: ${f && (f.definitionId !== undefined ? f.definitionId : '–')}`
+      extra: (f && f.definitionId !== undefined) ? `Typ-ID: ${f.definitionId}` : ''
     }));
     renderCatalog(rows);
   } catch (e) {
@@ -188,14 +215,14 @@ document.getElementById('btn-load-fac').onclick = async function loadFacs() {
   }
 };
 
-// Details mit optionalen Embed-Teilen
+// Details mit optionalen Embed-Teilen (nur echte Daten)
 async function loadFacilityDetails(facilityId) {
   detailsId.value = facilityId;
   detailsOut.textContent = `Lade Standort ${facilityId} …`;
   try {
     const parts = [...document.querySelectorAll('[data-embed]:checked')].map(i => i.value);
     const qs = parts.length ? `?embed=${encodeURIComponent(parts.join(','))}` : '';
-    const res = await fetch(`/api/facility-object/${encodeURIComponent(facilityId)}`);
+    const res = await fetch(`/api/facilities/${encodeURIComponent(facilityId)}${qs}`);
 
     if (!res.ok) {
       const t = await res.text().catch(()=> '');
@@ -206,7 +233,6 @@ async function loadFacilityDetails(facilityId) {
     const ct = (res.headers.get('content-type') || '').toLowerCase();
     const json = /\bjson\b/i.test(ct) ? await res.json() : { hinweis:'Nicht-JSON', body: await res.text() };
 
-    // pickArray kann bei manchen APIs ein Wrapped-Array zurückgeben
     const arr = pickArray(json);
     const data = (Array.isArray(arr) && arr.length === 1) ? arr[0] : (arr.length ? arr : json);
 
@@ -221,6 +247,7 @@ document.getElementById('btn-fac-details').onclick = function () {
   if (id) loadFacilityDetails(id);
 };
 
-// Init
+// Init: nur UI-Zustand setzen, keine Auto-Loads
 syncFieldState();
-document.getElementById('btn-load').click();
+// Definitions-Dropdown beim Start befüllen (keine statischen Optionen)
+hydrateDefinitionsSelect();

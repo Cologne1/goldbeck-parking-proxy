@@ -5,10 +5,7 @@
   <title>Goldbeck – Standortdaten</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root {
-      --brand:#0f4c81; --accent:#ff9f1c; --bg:#f6f7fb; --text:#1f2937; --muted:#6b7280; --card:#ffffff;
-      --border:#e5e7eb;
-    }
+    :root { --brand:#0f4c81; --accent:#ff9f1c; --bg:#f6f7fb; --text:#1f2937; --muted:#6b7280; --card:#ffffff; --border:#e5e7eb; }
     *{box-sizing:border-box}
     html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
     header{background:var(--brand);color:#fff;padding:16px 22px}
@@ -60,9 +57,7 @@
     <div class="group" style="grid-column: span 2;">
       <label for="def">Standort-Typ (optional)</label>
       <select id="def">
-        <option value="">– alle –</option>
-        <option value="14">14 – Parkhaus</option>
-        <option value="1003">1003 – E-Laden</option>
+        <option value="">– bitte laden –</option>
       </select>
     </div>
 
@@ -87,14 +82,14 @@
     </div>
 
     <div class="hint" style="grid-column: 1 / -1;">
-      Felder werden je Bereich passend aktiviert (z. B. Belegung → Standort-ID).
+      Es werden keine Platzhalter gezeigt – alles kommt live aus der API.
     </div>
   </div>
 
   <div class="grid">
     <section class="card">
       <h3>Ergebnis</h3>
-      <pre id="out">{ }</pre>
+      <pre id="out">Noch nichts geladen.</pre>
     </section>
 
     <aside class="card">
@@ -106,7 +101,7 @@
           <div class="row">
             <button id="btn-load-defs">Typen laden</button>
           </div>
-          <small class="muted">Zeigt verfügbare Standort-Typen (definitionId)</small>
+          <small class="muted">Befüllt das Dropdown „Standort-Typ“ und die Tabelle.</small>
         </div>
 
         <div class="group">
@@ -136,19 +131,19 @@
         <div class="group small">
           <label>Zusatzdaten (Embed)</label>
           <div class="chips">
-            <label class="chip"><input type="checkbox" data-embed value="attributes" checked /> Attribute</label>
+            <label class="chip"><input type="checkbox" data-embed value="attributes" /> Attribute</label>
             <label class="chip"><input type="checkbox" data-embed value="facilityOccupancies" /> Belegung</label>
             <label class="chip"><input type="checkbox" data-embed value="facilityStatus" /> Status</label>
             <label class="chip"><input type="checkbox" data-embed value="methods" /> Methoden</label>
             <label class="chip"><input type="checkbox" data-embed value="devices" /> Geräte</label>
             <label class="chip"><input type="checkbox" data-embed value="fileAttachments" /> Dateien</label>
             <label class="chip"><input type="checkbox" data-embed value="contactData" /> Kontakt</label>
-            <label class="chip"><input type="checkbox" data-embed value="deviceStatus" /> Gerätestatus</label>
+            <label class="chip"><input type="checkbox" data-embed value="deviceStatus" /> Geräte-Status</label>
           </div>
-          <small class="muted">Hinweis: Mehr Embed → größere Antwort & etwas langsamer.</small>
+          <small class="muted">Nur aktivierte Embed-Teile werden geladen.</small>
         </div>
 
-        <pre id="details" style="max-height:26vh;">{ }</pre>
+        <pre id="details" style="max-height:26vh;">Noch nichts geladen.</pre>
       </div>
     </aside>
   </div>
