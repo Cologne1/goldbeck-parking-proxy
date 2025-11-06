@@ -1,4 +1,4 @@
-// goldbeck-proxy.js – iPAW /services v4x0 (ohne /rest)
+// goldbeck-proxy.js – Einzel-Fetches statt embed (CommonJS)
 require('dotenv/config');
 const express = require('express');
 const { request } = require('undici');
@@ -15,23 +15,44 @@ const BASIC    = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base6
 
 // ── Helpers
 const isJsonCT = (ct='') => /\bjson\b/i.test(ct);
-const toQueryString = (obj) => new URLSearchParams(obj || {}).toString();
-const qs = (req) => toQueryString(req.query || '');
+const qsObj    = (req) => Object.fromEntries(new URLSearchParams(req.url.split('?')[1] || ''));
+const toQS     = (obj) => new URLSearchParams(obj || {}).toString();
 
-async function upstreamGet(pathFromRoot, query='') {
-  // pathFromRoot muss mit / beginnen, z. B. /services/v4x0/facilities
-  const url = `${BASE_URL}${pathFromRoot}${query ? `?${query}` : ''}`;
+async function upstreamGet(fullPath, query='') {
+  const url = `${BASE_URL}${fullPath}${query ? `?${query}` : ''}`;
   const r = await request(url, {
     method: 'GET',
     headers: { Authorization: BASIC, Accept: 'application/json,*/*' },
-    headersTimeout: 15000,
-    bodyTimeout: 15000,
+    headersTimeout: 20000,
+    bodyTimeout: 20000,
   });
   const ct = r.headers['content-type'] || '';
   return { r, ct, url };
 }
 
-async function proxyGet(res, pathFromRoot, query='') {
+function pickArray(json) {
+  if (Array.isArray(json)) return json;
+  if (!json || typeof json !== 'object') return [];
+  const keys = ['items','results','content','data','list',
+    'facilities','features','filecontent',
+    'occupancies','counters','attributes',
+    'methods','devices','status','deviceStatus','contactData'];
+  for (const k of keys) {
+    if (Array.isArray(json[k])) return json[k];
+  }
+  const first = Object.values(json).find(Array.isArray);
+  return Array.isArray(first) ? first : [];
+}
+
+function filterByFacilityId(json, facilityId) {
+  const idStr = String(facilityId);
+  const arr = pickArray(json);
+  const match = (x) =>
+    String(x?.facilityId ?? x?.facility?.id ?? x?.id) === idStr;
+  return arr.filter(match);
+}
+
+async function proxyList(res, pathFromRoot, query='') {
   try {
     const { r, ct, url } = await upstreamGet(pathFromRoot, query);
     res.setHeader('x-upstream-url', url);
@@ -42,51 +63,137 @@ async function proxyGet(res, pathFromRoot, query='') {
     }
     res.setHeader('Content-Type', ct || 'application/octet-stream');
     return r.body.pipe(res);
-  } catch (err) {
-    console.error('Proxy error:', err?.message || err);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
+  } catch (e) {
+    console.error('Proxy error:', e?.message || e);
+    return res.status(502).json({ error: 'Bad gateway', detail: String(e?.message || e) });
   }
 }
 
-// Static UI (optional)
+// ── Static UI
 app.use('/', express.static(path.join(__dirname, 'public')));
 
-// Debug-Log (optional)
+// ── Debug
 app.use((req,_res,next)=>{ if (req.path.startsWith('/api/')) console.log('[API]', req.method, req.originalUrl); next(); });
 
-// ── Listen (exakt wie spezifiziert)
-app.get('/api/facilities',           (req,res)=> proxyGet(res, '/services/v4x0/facilities',          qs(req)));
-app.get('/api/facility-definitions', (req,res)=> proxyGet(res, '/services/v4x0/facilitydefinitions', qs(req)));
-app.get('/api/features',             (req,res)=> proxyGet(res, '/services/v4x0/features',            qs(req)));
-app.get('/api/filecontent',          (req,res)=> proxyGet(res, '/services/v4x0/filecontent',         qs(req)));
-app.get('/api/occupancies',          (req,res)=> proxyGet(res, '/services/v4x0/occupancies',         qs(req)));
+/**
+ * MAP der „Embed“-Arten → Upstream-Collections
+ * Passe nur diese Tabelle an, falls bei dir die Sammlungsnamen anders heißen.
+ */
+const EMBED_MAP = {
+  attributes:        '/services/v4x0/attributes',
+  contactData:       '/services/v4x0/contactdata',
+  devices:           '/services/v4x0/devices',
+  fileAttachments:   '/services/v4x0/filecontent',   // Datei-Infos
+  methods:           '/services/v4x0/methods',
+  facilityOccupancies:'/services/v4x0/occupancies',  // Belegung
+  facilityStatus:    '/services/v4x0/status',
+  deviceStatus:      '/services/v4x0/devicestatus',
 
-// ── E-Charging
-app.get('/api/charging-stations',    (req,res)=> proxyGet(res, '/services/charging/v1x0/charging-stations', qs(req)));
-app.get('/api/charging-files/:fileAttachmentId',
-  (req,res)=> proxyGet(res, `/services/charging/v1x0/files/${encodeURIComponent(req.params.fileAttachmentId)}`));
+  // Bestehende, nicht direkt „embed“ aber nützlich:
+  facilities:         '/services/v4x0/facilities',
+  features:           '/services/v4x0/features',
+  facilitydefinitions:'/services/v4x0/facilitydefinitions',
+};
 
-// ── Facility-Details per ID (kein /{id} upstream → Filter-Fallbacks; embed passt durch)
-app.get('/api/facilities/:id', async (req, res) => {
-  const id = String(req.params.id || '').trim();
-  const rawQuery = qs(req); // z. B. embed=attributes,facilityStatus
-  const addTail = (hasQ) => (rawQuery ? (hasQ ? `&${rawQuery}` : `?${rawQuery}`) : '');
+// ── Basis-Listen
+app.get('/api/facilities',           (req,res)=> proxyList(res, EMBED_MAP.facilities,          req.url.split('?')[1] || ''));
+app.get('/api/facility-definitions', (req,res)=> proxyList(res, EMBED_MAP.facilitydefinitions, req.url.split('?')[1] || ''));
+app.get('/api/features',             (req,res)=> proxyList(res, EMBED_MAP.features,            req.url.split('?')[1] || ''));
+app.get('/api/filecontent',          (req,res)=> proxyList(res, EMBED_MAP.fileAttachments,     req.url.split('?')[1] || ''));
 
-  // typische Varianten (einige Systeme akzeptieren id, andere facilityId; OData-like $filter als Fallback)
+// ── Occupancies (mit robustem Fallback + striktem Filter)
+app.get('/api/occupancies', async (req, res) => {
+  const q = qsObj(req);
+  const facilityId = (q.facilityId || q.id || '').toString().trim();
+
+  // ohne facilityId → komplette Liste
+  if (!facilityId) return proxyList(res, EMBED_MAP.facilityOccupancies, toQS(q));
+
   const candidates = [
-    `/services/v4x0/facilities?id=${encodeURIComponent(id)}${addTail(true)}`,
-    `/services/v4x0/facilities?facilityId=${encodeURIComponent(id)}${addTail(true)}`,
-    `/services/v4x0/facilities?$filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
-    `/services/v4x0/facilities?filter=${encodeURIComponent(`id eq ${id}`)}${addTail(true)}`,
+    `${EMBED_MAP.facilityOccupancies}?facilityId=${encodeURIComponent(facilityId)}`,
+    `${EMBED_MAP.facilityOccupancies}/facilities/${encodeURIComponent(facilityId)}`,
   ];
 
   try {
-    for (const path of candidates) {
-      const { r, ct, url } = await upstreamGet(path, '');
+    for (const p of candidates) {
+      const { r, ct, url } = await upstreamGet(p, '');
       if ((r.statusCode||0) < 200 || (r.statusCode||0) >= 400) continue;
 
       res.setHeader('x-upstream-url', url);
+      if (!isJsonCT(ct)) {
+        res.status(r.statusCode || 200);
+        res.setHeader('Content-Type', ct || 'application/octet-stream');
+        return r.body.pipe(res);
+      }
 
+      const json = await r.body.json();
+      // immer streng filtern
+      return res.json(filterByFacilityId(json, facilityId));
+    }
+    return res.status(404).json({ error: 'Occupancies not found for facility', facilityId });
+  } catch (e) {
+    console.error('occupancies error:', e?.message || e);
+    return res.status(502).json({ error: 'Bad gateway', detail: String(e?.message || e) });
+  }
+});
+
+// ── Generischer Embed-Fetch: /api/embed/:kind?facilityId=123
+app.get('/api/embed/:kind', async (req, res) => {
+  const kind = req.params.kind;
+  const basePath = EMBED_MAP[kind];
+  if (!basePath) return res.status(400).json({ error: 'unknown kind', kind });
+
+  const q = qsObj(req);
+  const facilityId = (q.facilityId || q.id || '').toString().trim();
+
+  // ohne facilityId → ungefilterte Liste (kann groß sein)
+  if (!facilityId) return proxyList(res, basePath, req.url.split('?')[1] || '');
+
+  const candidates = [
+    `${basePath}?facilityId=${encodeURIComponent(facilityId)}`,
+    `${basePath}/facilities/${encodeURIComponent(facilityId)}`,
+  ];
+
+  try {
+    for (const p of candidates) {
+      const { r, ct, url } = await upstreamGet(p, '');
+      if ((r.statusCode||0) < 200 || (r.statusCode||0) >= 400) continue;
+
+      res.setHeader('x-upstream-url', url);
+      if (!isJsonCT(ct)) {
+        res.status(r.statusCode || 200);
+        res.setHeader('Content-Type', ct || 'application/octet-stream');
+        return r.body.pipe(res);
+      }
+
+      const json = await r.body.json();
+      // strikt nur diese facilityId
+      return res.json(filterByFacilityId(json, facilityId));
+    }
+    return res.status(404).json({ error: `${kind} not found for facility`, facilityId });
+  } catch (e) {
+    console.error('embed error:', kind, e?.message || e);
+    return res.status(502).json({ error: 'Bad gateway', detail: String(e?.message || e) });
+  }
+});
+
+// ── „Details“ einer Facility (Basis-Datensatz) per Filter (ohne embed)
+app.get('/api/facilities/:id', async (req, res) => {
+  const id = String(req.params.id || '').trim();
+
+  const variants = [
+    `${EMBED_MAP.facilities}?id=${encodeURIComponent(id)}`,
+    `${EMBED_MAP.facilities}?facilityId=${encodeURIComponent(id)}`,
+    `${EMBED_MAP.facilities}?$filter=${encodeURIComponent(`id eq ${id}`)}`,
+    `${EMBED_MAP.facilities}?filter=${encodeURIComponent(`id eq ${id}`)}`,
+  ];
+
+  try {
+    for (const p of variants) {
+      const { r, ct, url } = await upstreamGet(p, '');
+      if ((r.statusCode||0) < 200 || (r.statusCode||0) >= 400) continue;
+
+      res.setHeader('x-upstream-url', url);
       if (!isJsonCT(ct)) {
         res.status(r.statusCode || 200);
         res.setHeader('Content-Type', ct || 'application/octet-stream');
@@ -94,51 +201,23 @@ app.get('/api/facilities/:id', async (req, res) => {
       }
 
       const data = await r.body.json();
-
-      // Direktobjekt?
-      if (data && typeof data === 'object' && !Array.isArray(data) && (data.id || data.facilityId)) {
-        return res.json(data);
-      }
-
-      // Wrapper/Array → bestes Match ziehen
-      const arr = Array.isArray(data) ? data : (Object.values(data || {}).find(v => Array.isArray(v)) || []);
-      const hit = Array.isArray(arr)
-        ? (arr.find(x => String(x?.id) === id || String(x?.facilityId) === id) || (arr.length === 1 ? arr[0] : null))
-        : null;
-
+      const arr = pickArray(data);
+      const hit =
+        arr.find(x => String(x?.id)===id || String(x?.facilityId)===id) ||
+        (arr.length === 1 ? arr[0] : null) ||
+        (data && typeof data === 'object' && !Array.isArray(data) ? data : null);
       if (hit) return res.json(hit);
-      // sonst nächste Variante testen
     }
-
-    return res.status(404).json({ error: 'Not found', id });
-  } catch (err) {
-    console.error('facilities/:id error:', err?.message || err);
-    return res.status(502).json({ error:'Bad gateway', detail:String(err?.message || err) });
+    return res.status(404).json({ error: 'Facility not found', id });
+  } catch (e) {
+    console.error('facility/:id error:', e?.message || e);
+    return res.status(502).json({ error: 'Bad gateway', detail: String(e?.message || e) });
   }
 });
 
 // ── Health
 app.get('/api/health', (req,res)=>{
   res.json({ ok:true, baseUrl: BASE_URL, hasAuth: Boolean(GB_USER && GB_PASS) });
-});
-
-// ── Optional: 1:1 Passthrough für alles unter /api/services/* → /ipaw/services/*
-app.get('/api/services/*', async (req,res)=>{
-  // behält /services/... bei, ersetzt nur das /api Präfix
-  const upstreamPath = req.originalUrl.replace(/^\/api/, ''); // → /services/...
-  try {
-    const { r, ct, url } = await upstreamGet(upstreamPath, '');
-    res.setHeader('x-upstream-url', url);
-    res.status(r.statusCode || 200);
-    if (isJsonCT(ct)) {
-      const j = await r.body.json(); return res.json(j);
-    }
-    res.setHeader('Content-Type', ct || 'application/octet-stream');
-    return r.body.pipe(res);
-  } catch (e) {
-    console.error('passthrough error:', e?.message || e);
-    return res.status(502).json({ error:'Bad gateway', detail:String(e?.message || e) });
-  }
 });
 
 app.listen(PORT, ()=> {
