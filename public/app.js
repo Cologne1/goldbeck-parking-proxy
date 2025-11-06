@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 function pickArray(json) {
   if (Array.isArray(json)) return json;
   if (!json || typeof json !== 'object') return [];
-  const keys = ['items','results','content','data','list','facilities','features','filecontent','occupancies','counters','attributes','methods','devices','status','deviceStatus','contactData','contacts'];
+  const keys = ['items','results','content','data','list','facilities','features','filecontent','occupancies','counters','attributes','methods','devices','status','deviceStatus','contactData','contacts','outlets'];
   for (const k of keys) if (Array.isArray(json[k])) return json[k];
   const first = Object.values(json).find(Array.isArray);
   return Array.isArray(first) ? first : [];
@@ -72,6 +72,50 @@ function mapFeatureBadges(features=[]){
 }
 function kv(container, entries){ container.innerHTML = entries.filter(([,v]) => v!=null && v!=='').map(([k,v]) => `<div>${k}</div><div>${v}</div>`).join(''); }
 
+// ===== Preis-Helfer =====
+// generischer Attribut-Lookup (Facilities/Charging)
+function getAttr(attributes=[], keys=[]){
+  if(!Array.isArray(attributes)) return null;
+  const lowerKeys = keys.map(k=>k.toLowerCase());
+  let hit = attributes.find(a => lowerKeys.includes(String(a?.key||a?.name).toLowerCase()));
+  if (hit && (hit.value!=null && hit.value!=="")) return hit.value;
+  // manchmal als {key, values:[{value,label}]}
+  if (hit && Array.isArray(hit.values) && hit.values.length) return hit.values.map(v=>v.value ?? v.label ?? '').filter(Boolean).join(' / ');
+  // als map in attributes?
+  const obj = Object.fromEntries(attributes.map(a=>[String(a?.key||a?.name).toLowerCase(), a?.value ?? a?.values]));
+  for (const k of lowerKeys) if (obj[k]!=null) return obj[k];
+  return null;
+}
+// string format
+const euro = (v) => {
+  if (v == null || v === '') return '';
+  const s = String(v).toString().replace('.', ',');
+  return s.includes('€') ? s : s + ' €';
+};
+// Preise Parken (Facilities)
+function extractParkingPrices(detail){
+  const attrs = detail.attributes || [];
+  const hourly = getAttr(attrs, ['hourly','price_hour','rate_hour','hour_price','pro_stunde']);
+  const dayMax = getAttr(attrs, ['dayMax','price_day_max','rate_day_max','tageshöchstsatz','day_max']);
+  const monthly = getAttr(attrs, ['monthlyLongTerm','long_term_monthly','dauerparkplatz_monat','monthly']);
+  // häufig sind values schon formatiert (z. B. "1,50 €")
+  return {
+    hourly: hourly || detail.hourly || null,
+    dayMax: dayMax || detail.dayMax || null,
+    monthly: monthly || detail.monthly || null,
+  };
+}
+
+// Preise Laden (Charging)
+function extractChargingPrices(detail){
+  const attrs = detail.attributes || [];
+  const perKwh = getAttr(attrs, ['pricePerKwh','price_per_kwh','kwh_price','preis_kwh']);
+  const sessionFee = getAttr(attrs, ['sessionFee','startFee','startgebühr','session_fee']);
+  const parkingWhileCharging = getAttr(attrs, ['parkingFeeWhileCharging','parking_fee_while_charging','parkentgelt_während_laden']);
+  const minPrice = getAttr(attrs, ['minPrice','minimum_price','mindespreis','min_preis']);
+  return { perKwh, sessionFee, parkingWhileCharging, minPrice };
+}
+
 // ===== Facility LIST =====
 const facDefSel = $('facDef');
 const facQuery  = $('facQuery');
@@ -114,7 +158,6 @@ async function loadFacilityList() {
     </tr>`;
   }).join('');
 
-  // click → load details
   facTableBody.querySelectorAll('a.rowlink').forEach(a=>{
     a.addEventListener('click', (e)=>{
       e.preventDefault();
@@ -134,10 +177,18 @@ function renderFacility(detail) {
   const status = combinedStatusFromOccupancy(detail.facilityOccupancies);
   const payBadges = mapPaymentBadges(detail.features || []);
   const featBadges = mapFeatureBadges(detail.features || []);
+  const prices = extractParkingPrices(detail);
+
+  const priceLine = [
+    prices.hourly ? `pro Stunde: ${prices.hourly}` : '',
+    prices.dayMax ? `Tageshöchstsatz: ${prices.dayMax}` : '',
+    prices.monthly ? `Dauerparken/Monat: ${prices.monthly}` : ''
+  ].filter(Boolean).join(' · ');
 
   kv(document.getElementById('facRendered'), [
     ['Name', detail.name || '–'],
     ['Adresse', fmtAddress(detail)],
+    ['Tarife', priceLine || '–'],
     ['Einfahrtshöhe', detail.clearanceMeters ? `${detail.clearanceMeters.toFixed(2).replace('.',',')} m` :
       (detail.heightLimitCm ? `${(detail.heightLimitCm/100).toFixed(2).replace('.',',')} m` : '–')],
     ['Gesamtplätze', (detail.capacityTotal ?? detail.totalCapacity ?? '–')],
@@ -162,13 +213,14 @@ async function loadFacilityDetailObject(id, extras = []) {
   if (wants.has('features')) {
     promises.push(fetch(`/api/features?facilityId=${encodeURIComponent(id)}`).then(r=>r.ok?r.json():[]).then(d=>['features', d]));
   }
-  ['contactData','methods','fileAttachments','facilityStatus','deviceStatus'].forEach(kind=>{
-    if (wants.has(kind)) {
+  ['contactData','methods','fileAttachments','facilityStatus','deviceStatus','attributes'].forEach(kind=>{
+    if (wants.has(kind) || kind==='attributes') { // attributes oft nötig für Tarife
       promises.push(fetch(`/api/embed/${encodeURIComponent(kind)}?facilityId=${encodeURIComponent(id)}`).then(r=>r.ok?r.json():[]).then(d=>[kind, d]));
     }
   });
 
   const extraObj = Object.fromEntries(await Promise.all(promises));
+  // tarife brauchen attributes → im Detailobjekt verfügbar halten
   return { ...facility, ...extraObj };
 }
 
@@ -176,6 +228,9 @@ document.getElementById('btnFacility').onclick = async ()=>{
   const id = (document.getElementById('facilityId').value||'').trim();
   if (!id) { document.getElementById('facJson').textContent = JSON.stringify({error:'Bitte eine Standort-ID eingeben.'},null,2); return; }
   const extras = [...document.querySelectorAll('.fac-extra:checked')].map(i=>i.value);
+  // für Preise: attributes sicherstellen, auch wenn nicht angehakt
+  if (!extras.includes('attributes')) extras.push('attributes');
+
   document.getElementById('facJson').textContent = 'Lade …';
   try {
     const detail = await loadFacilityDetailObject(id, extras);
@@ -238,10 +293,19 @@ function renderCharging(detail) {
     ? detail.outlets.map(o => `${o.type||'Outlet'}${o.powerKw?` (${o.powerKw} kW)`:''}`).join(', ')
     : '–';
   const featBadges = (detail.features||[]).map(f=>f.name||f.key).filter(Boolean);
+  const prices = extractChargingPrices(detail);
+
+  const priceLine = [
+    prices.perKwh ? `pro kWh: ${prices.perKwh}` : '',
+    prices.sessionFee ? `Startgebühr: ${prices.sessionFee}` : '',
+    prices.parkingWhileCharging ? `Parkentgelt: ${prices.parkingWhileCharging}` : '',
+    prices.minPrice ? `Mindestpreis: ${prices.minPrice}` : ''
+  ].filter(Boolean).join(' · ');
 
   kv(document.getElementById('chgRendered'), [
     ['Name', detail.name || '–'],
     ['Adresse', fmtAddress(detail)],
+    ['Ladepreise', priceLine || '–'],
     ['Steckertypen', outletInfo],
     ['Öffnungszeiten', Array.isArray(detail.openingHours)&&detail.openingHours.length ? 'siehe Daten' : '–'],
     ['Kontakt', Array.isArray(detail.contactData)&&detail.contactData.length ? 'vorhanden' : '–'],

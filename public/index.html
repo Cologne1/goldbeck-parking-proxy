@@ -27,7 +27,7 @@
     th { background:#fafafa; position:sticky; top:0; }
     .tblwrap { max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
     .rowlink { color:#0b5; cursor:pointer; text-decoration:underline; }
-    .kv { display:grid; grid-template-columns: 140px 1fr; gap:6px; font-size:14px; }
+    .kv { display:grid; grid-template-columns: 160px 1fr; gap:6px; font-size:14px; }
     .kv div:nth-child(odd){color:#4b5563}
     .badges { display:flex; flex-wrap:wrap; gap:6px; }
     .badge { background:#eef2ff; border:1px solid #dbe5ff; border-radius:999px; padding:4px 10px; font-size:12px; }
@@ -35,7 +35,7 @@
     .status-tight{ background:#fff6e1; border-color:#ffe0a8; }
     .status-full{ background:#ffeaea; border-color:#ffc1c1; }
     .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    pre { white-space:break-spaces; background:#0b1020; color:#b8f4b8; padding:12px; border-radius:10px; max-height:48vh; overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
+    pre { background:#0b1020; color:#b8f4b8; padding:12px; border-radius:10px; max-height:48vh; overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; white-space: break-spaces; }
     small { color:var(--muted); }
   </style>
 </head>
@@ -99,7 +99,7 @@
       </div>
       <div class="group col-2">
         <label>&nbsp;</label>
-        <span id="facCount" class="pill">0</span>
+        <span id="facCount" class="pill">1</span>
       </div>
     </div>
 
@@ -170,7 +170,7 @@
       </div>
       <div class="group col-2">
         <label>&nbsp;</label>
-        <span id="chgCount" class="pill">0</span>
+        <span id="chgCount" class="pill">1</span>
       </div>
     </div>
 
