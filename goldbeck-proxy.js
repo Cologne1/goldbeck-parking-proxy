@@ -1,59 +1,67 @@
-// goldbeck-proxy.js
+// goldbeck-proxy.js (CommonJS) – iPCM + Static wie im ZIP
 require('dotenv/config');
 const express = require('express');
 const { request } = require('undici');
+const path = require('path');
 
 const app = express();
+
+// ---- ENV ----
+const BASE_URL = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/iPCM';
+const GB_USER  = process.env.GB_USER || 'CC webservicegps';
+const GB_PASS  = process.env.GB_PASS || 'webservice';
+const PORT     = Number(process.env.PORT || 4000);
+
+// Basic Auth Header (serverseitig)
+const basic = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64');
+
 app.use(express.json());
 
-// ──────────────────────────────────────────────────────────────────────────────
-// ENV
-// ──────────────────────────────────────────────────────────────────────────────
-const BASE_URL   = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/ipaw';
-const GB_USER    = process.env.GB_USER || process.env.GB_USERNAME || '';
-const GB_PASS    = process.env.GB_PASS || process.env.GB_PASSWORD || '';
-const PORT       = process.env.PORT || 3030;
-
-// ──────────────────────────────────────────────────────────────────────────────
-/** Helper: HTTP GET mit BasicAuth und JSON-Parsing */
-async function gbGet(path, { searchParams } = {}) {
-  const url = new URL(path, BASE_URL);
-  if (searchParams) Object.entries(searchParams).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) url.searchParams.set(k, v);
-  });
-
-  const res = await request(url, {
+// ---- Hilfsfunktionen ----
+function qs(req) {
+  const q = new URLSearchParams(req.query || {}).toString();
+  return q ? `?${q}` : '';
+}
+async function getUpstream(pathAndQuery) {
+  const url = `${BASE_URL}${pathAndQuery}`;
+  const r = await request(url, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      authorization: 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64'),
-    },
+    headers: { Authorization: basic, Accept: 'application/json,*/*' },
+    headersTimeout: 15000,
+    bodyTimeout: 15000,
   });
-
-  if (res.statusCode >= 400) {
-    const text = await res.body.text();
-    throw new Error(`GB GET ${url} → ${res.statusCode}: ${text}`);
+  const ct = r.headers['content-type'] || '';
+  if (r.statusCode >= 400) {
+    const text = await r.body.text();
+    const err = new Error(`Upstream ${r.statusCode} for ${url}: ${text}`);
+    err.statusCode = r.statusCode;
+    throw err;
   }
-  const ct = res.headers['content-type'] || '';
-  if (ct.includes('application/json')) return res.body.json();
-  return res.body.text();
+  return { r, ct, url };
+}
+async function getJson(pathAndQuery) {
+  const { r, ct } = await getUpstream(pathAndQuery);
+  return ct.includes('application/json') ? r.body.json() : r.body.text();
+}
+async function proxyGet(res, pathAndQuery) {
+  try {
+    const { r, ct } = await getUpstream(pathAndQuery);
+    if (ct.includes('application/json')) {
+      const json = await r.body.json();
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.json(json);
+    } else {
+      res.setHeader('Content-Type', ct || 'application/octet-stream');
+      return r.body.pipe(res);
+    }
+  } catch (err) {
+    console.error('API passthrough error:', err?.message || err);
+    return res.status(err.statusCode || 502).json({ error: 'Bad gateway', detail: String(err?.message || err) });
+  }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Datenzugriff
-// (Hinweis: Facilities/Features Endpunkte bleiben placeholder bis du mir deren
-// Swagger zeigst. Die Occupancy/Status-Routen sind hier präzise umgesetzt.)
-// ──────────────────────────────────────────────────────────────────────────────
-
-async function fetchFacilities() {
-  // 👇 Passe diesen Pfad an deine Facilities-API an, falls abweichend.
-  return gbGet('/services/v4x0/facilities');
-}
-
-async function fetchFeatures() {
-  // 👇 Passe diesen Pfad an deine Features-API an, falls abweichend.
-  return gbGet('/services/v4x0/features');
-}
+// ---- Static Test UI (GENAU wie im ZIP) ----
+app.use('/', express.static(path.join(__dirname, 'public')));
 
 function restPath(p) {
   // BASE_URL kann mit oder ohne /iPCM kommen
@@ -73,15 +81,19 @@ async function fetchFacilityStatusById(facilityId, locale) {
   return gbGet(restPath(`rest/v1/operation/status/facility/${encodeURIComponent(facilityId)}${q}`));
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Mapping-Helfer
-// ──────────────────────────────────────────────────────────────────────────────
+// ---- (Platzhalter bis du Facilities/Features-REST bestätigst) ----
+async function fetchFacilities() {
+  // falls eure Stammdaten auch unter /iPCM/rest/... liegen, bitte Pfad durchgeben
+  return getJson('/services/v4x0/facilities');
+}
+async function fetchFeatures() {
+  return getJson('/services/v4x0/features');
+}
 
-/** Feature-Mapping von API → deine Keys */
+// ---- Mapping Helfer ----
 function mapFeaturesForFacility(allFeatures, facilityId) {
   const f = (allFeatures || []).filter(x => String(x.facilityId) === String(facilityId));
-  const has = (key) => f.some(x => (x.type || x.key) === key);
-
+  const has = (key) => f.some(x => (x.type || x.key || x.code) === key || (x.name || '').toLowerCase() === key);
   const features = [];
   if (has('public_restrooms') || has('toilet')) features.push('public_restrooms');
   if (has('surveillance') || has('video_surveillance')) features.push('surveillance');
@@ -104,138 +116,77 @@ function mapFeaturesForFacility(allFeatures, facilityId) {
 
   return { features, paymentOptions };
 }
-
-/** Öffnungszeiten → HTML-Table (Fallback 24/7 bis Opening-Quelle steht) */
-function openingTimesToHtml() {
-  return `<table width="100%" cellpadding="0" cellspacing="0"><tr><td><label>Täglich (auch Feiertage)</label></td><td>0 - 24 Uhr</td></tr></table>`;
+function combinedStatusFromOccupancy(occ) {
+  if (!occ || !Array.isArray(occ.counters) || !occ.counters.length) return 'unknown';
+  const rank = { full: 3, tight: 2, free: 1, unknown: 0 };
+  let best = 'unknown';
+  for (const c of occ.counters) {
+    const s = String(c.status || '').toLowerCase();
+    if (rank[s] > rank[best]) best = s;
+  }
+  if (best !== 'unknown') return best;
+  let max = 0, free = 0;
+  for (const c of occ.counters) {
+    if (typeof c.maxPlaces === 'number') max += c.maxPlaces;
+    if (typeof c.freePlaces === 'number') free += c.freePlaces;
+  }
+  if (max <= 0) return 'unknown';
+  const ratio = (max - free) / max;
+  if (ratio <= 0.60) return 'free';
+  if (ratio <= 0.90) return 'tight';
+  return 'full';
 }
-
-/** Tarife → HTML-Table (bis eigene Tarifquelle vorhanden) */
-function ratesToHtml(rates) {
-  const hour = (rates && rates.hourly) || '1,50 €';
-  const dayMax = (rates && rates.dayMax) || '10,00 €';
-  const monthly = (rates && rates.monthlyLongTerm) || '65,00 €';
-
-  return `<table style="width: 100%;">
-<tbody>
-<tr>
-<td><span style="color: #ff6600;"><strong>Standardtarif</strong></span></td>
-<td align="right" nowrap="nowrap">&nbsp;</td>
-</tr>
-<tr>
-<td>pro Stunde</td>
-<td align="right" nowrap="nowrap">${hour}</td>
-</tr>
-<tr>
-<td>Tageshöchstsatz</td>
-<td align="right" nowrap="nowrap">${dayMax}</td>
-</tr>
-<tr>
-<td>&nbsp;</td>
-<td align="right" nowrap="nowrap">&nbsp;</td>
-</tr>
-<tr>
-<td><span style="color: #ff6600;"><strong>Dauerstellplatz</strong></span></td>
-<td align="right" nowrap="nowrap">&nbsp;</td>
-</tr>
-<tr>
-<td nowrap="nowrap">Dauerparkplatz pro Monat</td>
-<td align="right" nowrap="nowrap">${monthly}</td>
-</tr>
-</tbody>
-</table>`;
-}
-
-/** Adresse → streetLines */
 function addressToStreetLines(fac) {
   const line1 = [fac.address?.street, fac.address?.houseNo].filter(Boolean).join(' ').trim() || fac.street || '';
   const line2 = [fac.address?.zip || fac.zip, fac.address?.city || fac.city].filter(Boolean).join(' ') || '';
   return [line1, line2].filter(Boolean);
 }
-
-/** Bild-URL wählen */
 function pickImageUrl(fac) {
   if (fac.images?.length) return fac.images[0].url;
   if (fac.snapshotUrl) return fac.snapshotUrl;
   return null;
 }
-
-/** Restriktionen (Einfahrtshöhe) */
 function mapRestrictions(fac) {
-  if (typeof fac.clearanceMeters === 'number') {
-    return `Einfahrtshöhe: ${fac.clearanceMeters.toFixed(2).replace('.', ',')}m`;
-  }
-  if (typeof fac.heightLimitCm === 'number') {
-    return `Einfahrtshöhe: ${(fac.heightLimitCm / 100).toFixed(2).replace('.', ',')}m`;
-  }
+  if (typeof fac.clearanceMeters === 'number') return `Einfahrtshöhe: ${fac.clearanceMeters.toFixed(2).replace('.', ',')}m`;
+  if (typeof fac.heightLimitCm === 'number') return `Einfahrtshöhe: ${(fac.heightLimitCm / 100).toFixed(2).replace('.', ',')}m`;
   return null;
 }
-
-/** Kapazität */
-function mapCapacity(fac) {
-  return fac.capacityTotal ?? fac.totalCapacity ?? null;
+function mapCapacity(fac) { return fac.capacityTotal ?? fac.totalCapacity ?? null; }
+function mapLongTermUrl(fac) { return fac.contractUrl || null; }
+function openingTimesToHtml() {
+  return `<table width="100%" cellpadding="0" cellspacing="0"><tr><td><label>Täglich (auch Feiertage)</label></td><td>0 - 24 Uhr</td></tr></table>`;
 }
-
-/** Long-Term URL */
-function mapLongTermUrl(fac) {
-  return fac.contractUrl || null;
+function ratesToHtml(rates) {
+  const hour = (rates && rates.hourly) || '1,50 €';
+  const dayMax = (rates && rates.dayMax) || '10,00 €';
+  const monthly = (rates && rates.monthlyLongTerm) || '65,00 €';
+  return `<table style="width: 100%;">
+<tbody>
+<tr><td><span style="color: #ff6600;"><strong>Standardtarif</strong></span></td><td align="right" nowrap="nowrap">&nbsp;</td></tr>
+<tr><td>pro Stunde</td><td align="right" nowrap="nowrap">${hour}</td></tr>
+<tr><td>Tageshöchstsatz</td><td align="right" nowrap="nowrap">${dayMax}</td></tr>
+<tr><td>&nbsp;</td><td align="right" nowrap="nowrap">&nbsp;</td></tr>
+<tr><td><span style="color: #ff6600;"><strong>Dauerstellplatz</strong></span></td><td align="right" nowrap="nowrap">&nbsp;</td></tr>
+<tr><td nowrap="nowrap">Dauerparkplatz pro Monat</td><td align="right" nowrap="nowrap">${monthly}</td></tr>
+</tbody></table>`;
 }
-
-/** Beschreibung / AGB-Link */
-function mapDescriptionHtml() {
+function descriptionHtml() {
   const url = 'https://www.goldbeck.de/fileadmin/Redaktion/Unternehmen/Dienstleistungen/GPS/forms/180813_Einstellbedingungen_ohne_ParkingCard_DSGVO.pdf';
   return `<p><a href="${url}" target="_blank">&nbsp;</a></p>`;
 }
-
-/** NEU: combinedStatus aus Occupancy-Countern aggregieren */
-function combinedStatusFromOccupancy(occ) {
-  if (!occ || !Array.isArray(occ.counters) || occ.counters.length === 0) return 'unknown';
-
-  // 1) Wenn irgendein Counter diskret "FULL"/"TIGHT"/"FREE" liefert, bevorzugt das (strengste gewinnt)
-  const statusRank = { full: 3, tight: 2, free: 1, unknown: 0 };
-  let best = 'unknown';
-  for (const c of occ.counters) {
-    const s = String(c.status || '').toLowerCase();
-    if (s === 'full' && statusRank[s] > statusRank[best]) best = 'full';
-    else if (s === 'tight' && statusRank[s] > statusRank[best]) best = 'tight';
-    else if (s === 'free' && statusRank[s] > statusRank[best]) best = 'free';
-  }
-  if (best !== 'unknown') return best;
-
-  // 2) Sonst auf Basis (maxPlaces, freePlaces) aggregieren
-  let sumMax = 0;
-  let sumFree = 0;
-  for (const c of occ.counters) {
-    if (typeof c.maxPlaces === 'number') sumMax += c.maxPlaces;
-    if (typeof c.freePlaces === 'number') sumFree += c.freePlaces;
-  }
-  if (sumMax <= 0) return 'unknown';
-
-  const occupied = sumMax - sumFree;
-  const ratio = occupied / sumMax; // 0..1
-  if (ratio <= 0.60) return 'free';
-  if (ratio <= 0.90) return 'tight';
-  return 'full';
-}
-
-/**
- * Haupt-Mapping: API-Facility + Features + Occupancy → Zielobjekt
- * (Status wird aktuell nur geladen, nicht in das Zielformat geschrieben.)
- */
-function toTargetObject({ fac, features, occupancy /*, status*/ }) {
-  const { features: featList, paymentOptions } = mapFeaturesForFacility(features, fac.id);
+function toTargetObject({ fac, features, occupancy }) {
+  const { features: featList, paymentOptions } = mapFeaturesForFacility(features, fac.id || fac.facilityId);
   const combinedStatus = combinedStatusFromOccupancy(occupancy);
-
   return {
-    id: Number(fac.id),
+    id: Number(fac.id ?? fac.facilityId),
     name: fac.name || '',
     city: fac.city || fac.address?.city || '',
-    lat: Number(fac.lat || fac.latitude),
-    lng: Number(fac.lng || fac.longitude),
+    lat: Number(fac.lat ?? fac.latitude),
+    lng: Number(fac.lng ?? fac.longitude),
     imageUrl: pickImageUrl(fac),
     rates: ratesToHtml(fac.rates),
     country: fac.country || 'DE',
-    description: mapDescriptionHtml(fac),
+    description: descriptionHtml(),
     openingTimes: openingTimesToHtml(fac.openingTimes),
     restrictions: mapRestrictions(fac),
     features: featList,
@@ -244,47 +195,38 @@ function toTargetObject({ fac, features, occupancy /*, status*/ }) {
     urlPrebooking: fac.prebookingUrl || null,
     urlLongTermParking: mapLongTermUrl(fac),
     capacityTotal: mapCapacity(fac),
-    combinedStatus, // "free" | "tight" | "full" | "unknown"
+    combinedStatus,
   };
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Route: Facility by ID → liefert dein gewünschtes Objekt
-// ──────────────────────────────────────────────────────────────────────────────
-
-app.get('/api/facilities/:id', async (req, res) => {
-  const id = String(req.params.id);
-  const locale = req.query.locale; // optional weiterreichen
-
+// ---- API: fertiges Facility-Objekt ----
+app.get('/api/facility-object/:id', async (req, res) => {
+  const id = String(req.params.id).trim();
+  const locale = req.query.locale;
   try {
-    // Stammdaten + Features + Occupancy (per Facility) + (optional) Status (per Facility)
-    const [facilities, features, occupancy, status] = await Promise.all([
+    const [facilities, features, occupancy] = await Promise.all([
       fetchFacilities(),
       fetchFeatures(),
       fetchFacilityOccupancyById(id, locale),
-      fetchFacilityStatusById(id, locale).catch(() => null), // nicht kritisch
+      // fetchFacilityStatusById(id, locale) // aktuell nicht im Zielformat genutzt
     ]);
-
-    const fac = (facilities || []).find(f =>
-      String(f.id) === id || String(f.facilityId) === id
-    );
+    const fac = (facilities || []).find(f => String(f.id) === id || String(f.facilityId) === id)
+      || (facilities?.content || []).find(f => String(f.id) === id || String(f.facilityId) === id);
     if (!fac) return res.status(404).json({ error: 'Facility not found', id });
-
-    const payload = toTargetObject({ fac, features, occupancy, status });
-    return res.json(payload);
+    return res.json(toTargetObject({ fac, features, occupancy }));
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      error: 'Failed to build facility object',
-      message: err.message,
-    });
+    console.error('facility-object error:', err?.message || err);
+    return res.status(500).json({ error: 'Failed to build facility object', detail: String(err?.message || err) });
   }
 });
 
-// Health
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// ---- (optional) Passthrough-Beispiele wie im ZIP ----
+app.get('/api/facilities', (req, res) => proxyGet(res, '/services/v4x0/facilities' + qs(req)));
+app.get('/api/features',   (req, res) => proxyGet(res, '/services/v4x0/features'   + qs(req)));
 
-// Start
+// ---- Start ----
 app.listen(PORT, () => {
-  console.log(`Goldbeck proxy up on :${PORT}`);
+  console.log(`Goldbeck test proxy on http://localhost:${PORT} (base: ${BASE_URL})`);
 });
+
+

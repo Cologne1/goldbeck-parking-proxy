@@ -195,7 +195,7 @@ async function loadFacilityDetails(facilityId) {
   try {
     const parts = [...document.querySelectorAll('[data-embed]:checked')].map(i => i.value);
     const qs = parts.length ? `?embed=${encodeURIComponent(parts.join(','))}` : '';
-    const res = await fetch(`/api/facilities/${encodeURIComponent(facilityId)}${qs}`);
+    const res = await fetch(`/api/facility-object/${encodeURIComponent(facilityId)}`);
 
     if (!res.ok) {
       const t = await res.text().catch(()=> '');
