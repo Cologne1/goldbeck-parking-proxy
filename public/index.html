@@ -2,148 +2,122 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Goldbeck – Standortdaten</title>
+  <title>Goldbeck – Parkhäuser & E-Charging</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --brand:#0f4c81; --accent:#ff9f1c; --bg:#f6f7fb; --text:#1f2937; --muted:#6b7280; --card:#ffffff; --border:#e5e7eb; }
-    *{box-sizing:border-box}
-    html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
-    header{background:var(--brand);color:#fff;padding:16px 22px}
-    header h1{margin:0;font-size:18px;letter-spacing:.2px}
-    main{padding:18px;max-width:1180px;margin:0 auto}
-
-    .grid{display:grid;gap:14px;grid-template-columns: 1.3fr .9fr}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
-    .card h3{margin:0 0 10px;font-size:15px}
-    .toolbar{display:grid;grid-template-columns:repeat(12,1fr);gap:10px;align-items:end}
-    .group{display:flex;flex-direction:column;gap:6px}
-    label{font-size:12px;color:var(--muted)}
-    select,input,button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#fff;font-size:14px}
-    select:focus,input:focus{outline:2px solid #c8ddf2;border-color:#c8ddf2}
-    button{background:var(--brand);color:#fff;border:none}
-    button:hover{filter:brightness(1.05);cursor:pointer}
-    button:disabled{background:#c9d7e6;cursor:not-allowed}
-    .count{display:inline-block;background:var(--accent);color:#fff;border-radius:999px;padding:4px 10px;font-size:12px}
-    .hint{font-size:12px;color:var(--muted);margin:.35rem 0 .75rem}
-
-    pre{white-space:break-spaces;background:#0b1020;color:#b8f4b8;padding:14px;border-radius:10px;max-height:65vh;overflow:auto;font-size:13px}
-    table{width:100%;border-collapse:collapse;font-size:13px}
-    th,td{border-bottom:1px solid var(--border);padding:7px 8px;text-align:left}
-    th{background:#fafafa}
-    .muted{color:var(--muted)}
-    .row{display:flex;gap:8px;flex-wrap:wrap}
-    .chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:#fff;font-size:12px}
-    .chips{display:flex;gap:6px;flex-wrap:wrap}
-    .split{display:grid;grid-template-columns: 1fr 1fr; gap:10px}
-    .small{font-size:12px}
+    :root { --blue:#003399; --orange:#ff9900; --bg:#f6f7fb; --ink:#222; --muted:#6a6f7a; --card:#fff; --line:#e8eaf0; }
+    * { box-sizing: border-box; }
+    body { margin:0; font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--ink); background:var(--bg); }
+    header { background:var(--blue); color:#fff; padding:14px 20px; }
+    header h1 { margin:0; font-size:18px; letter-spacing:.2px; }
+    main { max-width:1200px; margin: 16px auto; padding: 0 16px; }
+    .bar { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; display:grid; grid-template-columns: repeat(12, 1fr); gap:10px; align-items:end; }
+    .group { display:flex; flex-direction:column; gap:6px; }
+    label { font-size:12px; color:var(--muted); }
+    select, input, button { padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; font-size:14px; }
+    button { background:var(--blue); color:#fff; border:none; cursor:pointer; }
+    button:hover { background:var(--orange); }
+    button:disabled { background:#b9c4ea; cursor:not-allowed; }
+    .col-3{grid-column: span 3;} .col-2{grid-column: span 2;} .col-4{grid-column: span 4;} .col-1{grid-column: span 1;} .col-6{grid-column: span 6;} .col-12{grid-column: span 12;}
+    .pill { background:var(--orange); color:#fff; border-radius:999px; padding:3px 10px; font-size:12px; display:inline-block; }
+    .grid { display:grid; grid-template-columns: 1fr 380px; gap:14px; margin-top:12px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; }
+    .card h3 { margin:0 0 8px; font-size:15px; }
+    pre { white-space: break-spaces; background:#0b1020; color:#b8f4b8; padding:14px; border-radius:10px; max-height:68vh; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12.5px; }
+    table { width:100%; border-collapse: collapse; font-size:13px; }
+    th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; }
+    th { background:#fafafa; }
+    small { color:var(--muted); }
+    .checks { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
+    .checks label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; }
+    .inline { display:flex; gap:6px; align-items:center; }
   </style>
 </head>
 <body>
-<header><h1>Standortdaten (Goldbeck)</h1></header>
+<header><h1>Goldbeck – Parkhäuser & E-Charging (Test-UI)</h1></header>
 
 <main>
-  <div class="card toolbar" style="margin-bottom:12px">
-    <div class="group" style="grid-column: span 3;">
+  <div class="bar">
+    <div class="group col-3">
       <label for="endpoint">Bereich</label>
       <select id="endpoint">
-        <option value="/api/facilities">Standorte</option>
+        <option value="/api/facilities">Standorte (Parkhäuser)</option>
         <option value="/api/occupancies">Belegung</option>
-        <option value="/api/features">Merkmale</option>
-        <option value="/api/charging-stations">Ladestationen</option>
+        <option value="/api/features">Ausstattung</option>
+        <option value="/api/charging-stations">E-Ladestationen</option>
         <option value="/api/facility-definitions">Standort-Typen</option>
+        <option value="/api/filecontent">Dateien</option>
       </select>
     </div>
 
-    <div class="group" style="grid-column: span 2;">
-      <label for="def">Standort-Typ (optional)</label>
+    <div class="group col-2">
+      <label for="def">Standort-Typ (definitionId)</label>
       <select id="def">
-        <option value="">– bitte laden –</option>
+        <option value="">– alle –</option>
       </select>
+
     </div>
 
-    <div class="group" style="grid-column: span 2;">
-      <label for="standort">Standort-ID (optional)</label>
+    <div class="group col-2">
+      <label for="standort">Standort-ID</label>
       <input id="standort" placeholder="z. B. 2106" />
     </div>
 
-    <div class="group" style="grid-column: span 3;">
-      <label for="q">Suchen in Ergebnisliste</label>
-      <input id="q" placeholder="Volltext-Filter in der Liste" />
+    <div class="group col-3">
+      <label for="q">Suche im Ergebnis (Volltext)</label>
+      <input id="q" placeholder="Filter in der Ansicht" />
     </div>
 
-    <div class="group" style="grid-column: span 1;">
+    <div class="group col-1">
       <label>&nbsp;</label>
       <button id="btn-load">Laden</button>
     </div>
 
-    <div class="group" style="grid-column: span 1;">
+    <div class="group col-1">
       <label>&nbsp;</label>
-      <span id="count" class="count">0</span>
+      <span id="count" class="pill">0</span>
     </div>
 
-    <div class="hint" style="grid-column: 1 / -1;">
-      Es werden keine Platzhalter gezeigt – alles kommt live aus der API.
+    <div class="col-12">
+      <small><strong>Hinweis:</strong> Felder werden je nach Bereich automatisch (de-)aktiviert.</small>
     </div>
   </div>
 
   <div class="grid">
-    <section class="card">
-      <h3>Ergebnis</h3>
-      <pre id="out">Noch nichts geladen.</pre>
-    </section>
+    <div class="card">
+      <h3>Antwort</h3>
+      <pre id="out">{ }</pre>
+    </div>
 
     <aside class="card">
       <h3>Übersicht & Details</h3>
-
-      <div class="split">
-        <div class="group">
-          <label>Standort-Typen</label>
-          <div class="row">
-            <button id="btn-load-defs">Typen laden</button>
-          </div>
-          <small class="muted">Befüllt das Dropdown „Standort-Typ“ und die Tabelle.</small>
-        </div>
-
-        <div class="group">
-          <label>Standorte</label>
-          <div class="row">
-            <input id="catalog-def" placeholder="Filter nach Typ/Name" />
-            <button id="btn-load-fac">Standorte laden</button>
-          </div>
-          <small class="muted">Tipp: In der Tabelle die ID anklicken → Details.</small>
-        </div>
+      <div class="inline" style="gap:8px; flex-wrap:wrap;">
+        <button id="btn-load-defs">Typen laden</button>
+        <input id="catalog-def" placeholder="Liste filtern …" />
+        <button id="btn-load-fac">Standorte laden</button>
       </div>
-
-      <div style="margin-top:10px; max-height:28vh; overflow:auto;">
-        <table id="catalog">
-          <thead><tr><th>Typ</th><th>ID</th><th>Name</th><th class="muted">Info</th></tr></thead>
-          <tbody></tbody>
-        </table>
+      <div style="margin-top:8px; max-height:26vh; overflow:auto;">
+        <table id="catalog"><thead><tr><th>Typ</th><th>ID</th><th>Name</th><th><span style="color:#777">Info</span></th></tr></thead><tbody></tbody></table>
       </div>
 
       <div class="group" style="margin-top:12px;">
-        <label>Details zu Standort</label>
-        <div class="row">
-          <input id="details-id" placeholder="Standort-ID eingeben…" />
+        <h3>Standort-Details</h3>
+        <input id="details-id" placeholder="Standort-ID eingeben …" />
+        <div class="checks" style="margin:6px 0 6px;">
+          <label><input type="checkbox" data-embed value="facilityOccupancies" /> Belegung</label>
+          <label><input type="checkbox" data-embed value="contactData" /> Kontakt</label>
+          <label><input type="checkbox" data-embed value="devices" /> Geräte</label>
+          <label><input type="checkbox" data-embed value="methods" /> Methoden</label>
+          <label><input type="checkbox" data-embed value="fileAttachments" /> Dateien</label>
+          <label><input type="checkbox" data-embed value="attributes" /> Attribute</label>
+          <label><input type="checkbox" data-embed value="facilityStatus" /> Status</label>
+          <label><input type="checkbox" data-embed value="deviceStatus" /> Geräte-Status</label>
+        </div>
+        <div class="inline">
           <button id="btn-fac-details">Details laden</button>
+          <small>Wähle oben, was zusätzlich geladen werden soll.</small>
         </div>
-
-        <div class="group small">
-          <label>Zusatzdaten (Embed)</label>
-          <div class="chips">
-            <label class="chip"><input type="checkbox" data-embed value="attributes" /> Attribute</label>
-            <label class="chip"><input type="checkbox" data-embed value="facilityOccupancies" /> Belegung</label>
-            <label class="chip"><input type="checkbox" data-embed value="facilityStatus" /> Status</label>
-            <label class="chip"><input type="checkbox" data-embed value="methods" /> Methoden</label>
-            <label class="chip"><input type="checkbox" data-embed value="devices" /> Geräte</label>
-            <label class="chip"><input type="checkbox" data-embed value="fileAttachments" /> Dateien</label>
-            <label class="chip"><input type="checkbox" data-embed value="contactData" /> Kontakt</label>
-            <label class="chip"><input type="checkbox" data-embed value="deviceStatus" /> Geräte-Status</label>
-          </div>
-          <small class="muted">Nur aktivierte Embed-Teile werden geladen.</small>
-        </div>
-
-        <pre id="details" style="max-height:26vh;">Noch nichts geladen.</pre>
+        <pre id="details" style="max-height:30vh;">{ }</pre>
       </div>
     </aside>
   </div>

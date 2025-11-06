@@ -1,4 +1,4 @@
-// Helper
+// Helpers
 const $ = (id) => document.getElementById(id);
 const out = $('out');
 const count = $('count');
@@ -11,7 +11,7 @@ function pickArray(json) {
   const keys = ['items','results','content','data','list',
     'facilities','features','filecontent',
     'occupancies','counters','attributes',
-    'methods','devices','status','deviceStatus','contactData'];
+    'methods','devices','status','deviceStatus','contactData','contacts'];
   for (const k of keys) if (Array.isArray(json[k])) return json[k];
   const first = Object.values(json).find(Array.isArray);
   return Array.isArray(first) ? first : [];
@@ -19,7 +19,8 @@ function pickArray(json) {
 function show(data) {
   const arr = pickArray(data);
   count.textContent = String(Array.isArray(arr) ? arr.length : 0);
-  out.textContent = JSON.stringify(data, null, 2);
+  try { out.textContent = JSON.stringify(data, null, 2); }
+  catch { out.textContent = String(data); }
 }
 function clientFilter(arr, q) {
   if (!q) return arr;
@@ -37,17 +38,23 @@ function syncFieldState() {
   defEl.disabled = false;
   standortEl.disabled = false;
 
-  if (ep === '/api/facilities' || ep === '/api/features' || ep === '/api/facility-definitions') {
-    defEl.disabled = false; standortEl.disabled = true; standortEl.value = '';
+  if (ep === '/api/features' || ep === '/api/facility-definitions' || ep === '/api/filecontent') {
+    defEl.disabled = false;
+    standortEl.disabled = true; // hier nicht genutzt
+    standortEl.value = '';
   } else if (ep === '/api/charging-stations') {
-    defEl.disabled = false; standortEl.disabled = false;
+    defEl.disabled = false;      // optional
+    standortEl.disabled = false; // optional (Detail via /:id)
   } else if (ep === '/api/occupancies') {
-    defEl.disabled = true; defEl.value = ''; standortEl.disabled = false;
+    defEl.disabled = true; defEl.value = '';
+    standortEl.disabled = false; // erforderlich
   }
+  // 👉 /api/facilities bleibt jetzt AKTIV (definitionId optional, standortId optional)
 }
+
 $('endpoint').addEventListener('change', syncFieldState);
 
-// Dropdown „Typen“
+// Typen-Dropdown füllen
 async function hydrateDefinitionsSelect() {
   const sel = $('def');
   sel.innerHTML = `<option value="">– alle –</option>`;
@@ -70,13 +77,13 @@ async function hydrateDefinitionsSelect() {
 
 // Hauptliste laden
 $('btn-load').onclick = async function handleLoad() {
-  const ep   = $('endpoint').value;
-  const q    = $('q').value.trim();
-  const def  = $('def').value;
-  const fid  = $('standort').value.trim();
+  const ep  = $('endpoint').value;
+  const q   = $('q').value.trim();
+  const def = $('def').value;
+  const fid = $('standort').value.trim();
 
   const params = new URLSearchParams();
-  if (def && (ep === '/api/facilities' || ep === '/api/features' || ep === '/api/facility-definitions' || ep === '/api/charging-stations')) {
+  if (def && (ep === '/api/facilities' || ep === '/api/features' || ep === '/api/facility-definitions' || ep === '/api/filecontent' || ep === '/api/charging-stations')) {
     params.set('definitionId', def);
   }
   if (fid && (ep === '/api/occupancies' || ep === '/api/charging-stations' || ep === '/api/features')) {
@@ -84,30 +91,41 @@ $('btn-load').onclick = async function handleLoad() {
   }
 
   if (ep === '/api/occupancies' && !fid) {
-    out.textContent = 'Hinweis: Für „Belegung“ eine Standort-ID eingeben.';
+    out.textContent = 'Hinweis: Für „Belegung“ bitte eine Standort-ID eingeben.';
     count.textContent = '0';
     return;
   }
 
-  const url = ep + (params.toString() ? `?${params}` : '');
+  // 👉 NEU: bei Parkhäuser + Standort-ID → Detail-API
+  let url = ep + (params.toString() ? `?${params}` : '');
+  if (ep === '/api/facilities' && fid) {
+    url = `/api/facilities/${encodeURIComponent(fid)}`;
+  }
+  if (ep === '/api/charging-stations' && fid) {
+    url = `/api/charging-stations/${encodeURIComponent(fid)}`;
+  }
+
   out.textContent = 'Lade ' + url + ' …';
   count.textContent = '…';
 
   try {
     const res = await fetch(url);
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
     if (!res.ok) {
-      const t = await res.text().catch(()=> '');
-      show({ error:`HTTP ${res.status}`, body: t });
+      const text = await res.text().catch(()=> '');
+      show({ error: `${res.status} ${res.statusText}`, body: text });
       return;
     }
-    const ct = (res.headers.get('content-type') || '').toLowerCase();
     const payload = /\bjson\b/.test(ct) ? await res.json() : await res.text();
-    const arr = typeof payload === 'string' ? [{hinweis:'Nicht-JSON', body: payload.slice(0,1000)}] : pickArray(payload);
+    const arr = typeof payload === 'string'
+      ? [{ hinweis: 'Nicht-JSON', body: payload.slice(0,1000) }]
+      : (Array.isArray(payload) ? payload : [payload]); // Detail → Einzelobjekt
     show(clientFilter(arr, q));
   } catch (e) {
     show({ error: String(e?.message || e) });
   }
 };
+
 
 // Katalog rechts
 const tblBody = document.querySelector('#catalog tbody');
@@ -160,7 +178,7 @@ document.getElementById('btn-load-fac').onclick = async function () {
   }
 };
 
-// ►► WICHTIG: Einzel-Fetch statt embed
+// Einzel-Fetch (statt embed): welche Teile in welcher Reihenfolge
 const EMBED_ORDER = [
   'attributes',
   'contactData',
@@ -180,14 +198,13 @@ async function loadFacilityDetails(facilityId) {
   let base = {};
   try {
     const res = await fetch(`/api/facilities/${encodeURIComponent(facilityId)}`);
-    if (res.ok) {
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      base = /\bjson\b/.test(ct) ? await res.json() : { note:'Nicht-JSON', raw: await res.text() };
-    } else {
+    if (!res.ok) {
       const t = await res.text().catch(()=> '');
       detailsOut.textContent = JSON.stringify({ error:`HTTP ${res.status}`, body:t }, null, 2);
       return;
     }
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    base = /\bjson\b/.test(ct) ? await res.json() : { note:'Nicht-JSON', raw: await res.text() };
   } catch (e) {
     detailsOut.textContent = JSON.stringify({ error: String(e?.message || e) }, null, 2);
     return;
@@ -197,15 +214,23 @@ async function loadFacilityDetails(facilityId) {
   const wanted = [...document.querySelectorAll('[data-embed]:checked')].map(i => i.value);
   const toFetch = EMBED_ORDER.filter(k => wanted.includes(k));
 
-  // 3) Parallel laden und mergen – JEWEILS gefiltert auf facilityId
+  // 3) Parallel laden und mergen – JEWEILS nur diese facilityId
   const results = {};
   await Promise.all(toFetch.map(async (kind) => {
     try {
-      const resp = await fetch(`/api/embed/${encodeURIComponent(kind)}?facilityId=${encodeURIComponent(facilityId)}`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const ct = (resp.headers.get('content-type') || '').toLowerCase();
-      const json = /\bjson\b/.test(ct) ? await resp.json() : [];
-      results[kind] = json; // bereits serverseitig gefiltert
+      if (kind === 'facilityOccupancies') {
+        // Belegung über eigene Route (strict filter)
+        const resp = await fetch(`/api/occupancies?facilityId=${encodeURIComponent(facilityId)}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        results[kind] = /\bjson\b/.test(ct) ? await resp.json() : [];
+      } else {
+        // generische Embed-Route
+        const resp = await fetch(`/api/embed/${encodeURIComponent(kind)}?facilityId=${encodeURIComponent(facilityId)}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        results[kind] = /\bjson\b/.test(ct) ? await resp.json() : [];
+      }
     } catch (e) {
       results[kind] = { error: String(e?.message || e) };
     }

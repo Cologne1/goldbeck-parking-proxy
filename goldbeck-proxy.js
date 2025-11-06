@@ -1,4 +1,4 @@
-// goldbeck-proxy.js – Einzel-Fetches statt embed (CommonJS)
+// goldbeck-proxy.js – iPAW /services v4x0 (ohne /rest) – Einzel-Fetches statt embed
 require('dotenv/config');
 const express = require('express');
 const { request } = require('undici');
@@ -15,11 +15,10 @@ const BASIC    = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base6
 
 // ── Helpers
 const isJsonCT = (ct='') => /\bjson\b/i.test(ct);
-const qsObj    = (req) => Object.fromEntries(new URLSearchParams(req.url.split('?')[1] || ''));
-const toQS     = (obj) => new URLSearchParams(obj || {}).toString();
+const qsStr = (req) => req.url.split('?')[1] || '';
 
-async function upstreamGet(fullPath, query='') {
-  const url = `${BASE_URL}${fullPath}${query ? `?${query}` : ''}`;
+async function upstreamGet(pathFromRoot, query='') {
+  const url = `${BASE_URL}${pathFromRoot}${query ? `?${query}` : ''}`;
   const r = await request(url, {
     method: 'GET',
     headers: { Authorization: BASIC, Accept: 'application/json,*/*' },
@@ -33,13 +32,13 @@ async function upstreamGet(fullPath, query='') {
 function pickArray(json) {
   if (Array.isArray(json)) return json;
   if (!json || typeof json !== 'object') return [];
-  const keys = ['items','results','content','data','list',
+  const keys = [
+    'items','results','content','data','list',
     'facilities','features','filecontent',
     'occupancies','counters','attributes',
-    'methods','devices','status','deviceStatus','contactData'];
-  for (const k of keys) {
-    if (Array.isArray(json[k])) return json[k];
-  }
+    'methods','devices','status','deviceStatus','contactData','contacts'
+  ];
+  for (const k of keys) if (Array.isArray(json[k])) return json[k];
   const first = Object.values(json).find(Array.isArray);
   return Array.isArray(first) ? first : [];
 }
@@ -69,6 +68,8 @@ async function proxyList(res, pathFromRoot, query='') {
   }
 }
 
+function toKebab(s){ return String(s).replace(/([a-z0-9])([A-Z])/g,'$1-$2').replace(/[_\s]+/g,'-').toLowerCase(); }
+
 // ── Static UI
 app.use('/', express.static(path.join(__dirname, 'public')));
 
@@ -76,42 +77,48 @@ app.use('/', express.static(path.join(__dirname, 'public')));
 app.use((req,_res,next)=>{ if (req.path.startsWith('/api/')) console.log('[API]', req.method, req.originalUrl); next(); });
 
 /**
- * MAP der „Embed“-Arten → Upstream-Collections
- * Passe nur diese Tabelle an, falls bei dir die Sammlungsnamen anders heißen.
+ * Bekannte Collections
+ * (Pfadnamen können je nach Deployment leicht abweichen; /api/embed/:kind kann mehrere Varianten probieren.)
  */
-const EMBED_MAP = {
-  attributes:        '/services/v4x0/attributes',
-  contactData:       '/services/v4x0/contactdata',
-  devices:           '/services/v4x0/devices',
-  fileAttachments:   '/services/v4x0/filecontent',   // Datei-Infos
-  methods:           '/services/v4x0/methods',
-  facilityOccupancies:'/services/v4x0/occupancies',  // Belegung
-  facilityStatus:    '/services/v4x0/status',
-  deviceStatus:      '/services/v4x0/devicestatus',
+const MAP = {
+  facilities:          '/services/v4x0/facilities',
+  facilitydefinitions: '/services/v4x0/facilitydefinitions',
+  features:            '/services/v4x0/features',
+  filecontent:         '/services/v4x0/filecontent',
+  occupancies:         '/services/v4x0/occupancies',
 
-  // Bestehende, nicht direkt „embed“ aber nützlich:
-  facilities:         '/services/v4x0/facilities',
-  features:           '/services/v4x0/features',
-  facilitydefinitions:'/services/v4x0/facilitydefinitions',
+  // Charging
+  chargingStations:    '/services/charging/v1x0/charging-stations',
+  chargingFiles:       '/services/charging/v1x0/files'
 };
 
-// ── Basis-Listen
-app.get('/api/facilities',           (req,res)=> proxyList(res, EMBED_MAP.facilities,          req.url.split('?')[1] || ''));
-app.get('/api/facility-definitions', (req,res)=> proxyList(res, EMBED_MAP.facilitydefinitions, req.url.split('?')[1] || ''));
-app.get('/api/features',             (req,res)=> proxyList(res, EMBED_MAP.features,            req.url.split('?')[1] || ''));
-app.get('/api/filecontent',          (req,res)=> proxyList(res, EMBED_MAP.fileAttachments,     req.url.split('?')[1] || ''));
+// ── Listen
+app.get('/api/facilities',           (req,res)=> proxyList(res, MAP.facilities,          qsStr(req)));
+app.get('/api/facility-definitions', (req,res)=> proxyList(res, MAP.facilitydefinitions, qsStr(req)));
+app.get('/api/features',             (req,res)=> proxyList(res, MAP.features,            qsStr(req)));
+app.get('/api/filecontent',          (req,res)=> proxyList(res, MAP.filecontent,         qsStr(req)));
 
-// ── Occupancies (mit robustem Fallback + striktem Filter)
+// ── Charging
+app.get('/api/charging-stations',    (req,res)=> proxyList(res, MAP.chargingStations, qsStr(req)));
+app.get('/api/charging-stations/:id', async (req,res)=>{
+  const id = encodeURIComponent(String(req.params.id||'').trim());
+  return proxyList(res, `${MAP.chargingStations}/${id}`, qsStr(req));
+});
+app.get('/api/charging-files/:fileAttachmentId',
+  (req,res)=> proxyList(res, `${MAP.chargingFiles}/${encodeURIComponent(req.params.fileAttachmentId)}`));
+
+// ── Occupancies (nur diese facilityId; probiert Query + Pfad-Variante)
 app.get('/api/occupancies', async (req, res) => {
-  const q = qsObj(req);
+  const q = Object.fromEntries(new URLSearchParams(qsStr(req)));
   const facilityId = (q.facilityId || q.id || '').toString().trim();
 
-  // ohne facilityId → komplette Liste
-  if (!facilityId) return proxyList(res, EMBED_MAP.facilityOccupancies, toQS(q));
+  if (!facilityId) return proxyList(res, MAP.occupancies, qsStr(req));
 
   const candidates = [
-    `${EMBED_MAP.facilityOccupancies}?facilityId=${encodeURIComponent(facilityId)}`,
-    `${EMBED_MAP.facilityOccupancies}/facilities/${encodeURIComponent(facilityId)}`,
+    `${MAP.occupancies}?facilityId=${encodeURIComponent(facilityId)}`,
+    `${MAP.occupancies}/facilities/${encodeURIComponent(facilityId)}`,
+    // optional:
+    `${MAP.facilities}/${encodeURIComponent(facilityId)}/occupancies`,
   ];
 
   try {
@@ -125,9 +132,7 @@ app.get('/api/occupancies', async (req, res) => {
         res.setHeader('Content-Type', ct || 'application/octet-stream');
         return r.body.pipe(res);
       }
-
       const json = await r.body.json();
-      // immer streng filtern
       return res.json(filterByFacilityId(json, facilityId));
     }
     return res.status(404).json({ error: 'Occupancies not found for facility', facilityId });
@@ -137,25 +142,51 @@ app.get('/api/occupancies', async (req, res) => {
   }
 });
 
-// ── Generischer Embed-Fetch: /api/embed/:kind?facilityId=123
+// ── Generische Einzel-Fetches für Facility-"Embeds" (ohne embed-Param)
+const EMBED_HINTS = {
+  attributes:        ['attributes'],
+  contactData:       ['contactdata','contacts'],
+  devices:           ['devices'],
+  fileAttachments:   ['filecontent','files','attachments'],
+  methods:           ['methods'],
+  facilityStatus:    ['status','facilitystatus'],
+  deviceStatus:      ['devicestatus','device-status'],
+};
+
 app.get('/api/embed/:kind', async (req, res) => {
-  const kind = req.params.kind;
-  const basePath = EMBED_MAP[kind];
-  if (!basePath) return res.status(400).json({ error: 'unknown kind', kind });
-
-  const q = qsObj(req);
+  const kind = String(req.params.kind || '').trim();
+  const q = Object.fromEntries(new URLSearchParams(qsStr(req)));
   const facilityId = (q.facilityId || q.id || '').toString().trim();
+  if (!facilityId) return res.status(400).json({ error:'facilityId required' });
 
-  // ohne facilityId → ungefilterte Liste (kann groß sein)
-  if (!facilityId) return proxyList(res, basePath, req.url.split('?')[1] || '');
+  const base = kind;
+  const kebab = toKebab(kind);
+  const plural = base.endsWith('s') ? base : `${base}s`;
+  const kebabPlural = kebab.endsWith('s') ? kebab : `${kebab}s`;
+  const hints = EMBED_HINTS[kind] || [];
 
-  const candidates = [
-    `${basePath}?facilityId=${encodeURIComponent(facilityId)}`,
-    `${basePath}/facilities/${encodeURIComponent(facilityId)}`,
-  ];
+  const tried = new Set();
+  const paths = [];
+  const add = (p)=>{ if (!tried.has(p)) { paths.push(p); tried.add(p); } };
+
+  // bevorzugte Hints
+  for (const h of hints) {
+    add(`${MAP.facilities}/${encodeURIComponent(facilityId)}/${h}`);
+    add(`/services/v4x0/${h}?facilityId=${encodeURIComponent(facilityId)}`);
+  }
+  // generische Varianten (unterhalb Facility)
+  add(`${MAP.facilities}/${encodeURIComponent(facilityId)}/${base}`);
+  add(`${MAP.facilities}/${encodeURIComponent(facilityId)}/${plural}`);
+  add(`${MAP.facilities}/${encodeURIComponent(facilityId)}/${kebab}`);
+  add(`${MAP.facilities}/${encodeURIComponent(facilityId)}/${kebabPlural}`);
+  // generische Varianten (Top-Level Collections mit Query)
+  add(`/services/v4x0/${base}?facilityId=${encodeURIComponent(facilityId)}`);
+  add(`/services/v4x0/${plural}?facilityId=${encodeURIComponent(facilityId)}`);
+  add(`/services/v4x0/${kebab}?facilityId=${encodeURIComponent(facilityId)}`);
+  add(`/services/v4x0/${kebabPlural}?facilityId=${encodeURIComponent(facilityId)}`);
 
   try {
-    for (const p of candidates) {
+    for (const p of paths) {
       const { r, ct, url } = await upstreamGet(p, '');
       if ((r.statusCode||0) < 200 || (r.statusCode||0) >= 400) continue;
 
@@ -165,27 +196,29 @@ app.get('/api/embed/:kind', async (req, res) => {
         res.setHeader('Content-Type', ct || 'application/octet-stream');
         return r.body.pipe(res);
       }
-
       const json = await r.body.json();
-      // strikt nur diese facilityId
-      return res.json(filterByFacilityId(json, facilityId));
+
+      // Facility-Subresource → vermutlich bereits richtig; Collections → strikt filtern
+      const isSub = /\/services\/v4x0\/facilities\/\d+\/?/i.test(url);
+      const out = isSub ? pickArray(json) : filterByFacilityId(json, facilityId);
+      return res.json(out);
     }
-    return res.status(404).json({ error: `${kind} not found for facility`, facilityId });
+    // nichts gefunden → leeres Array, UI bleibt stabil
+    return res.json([]);
   } catch (e) {
-    console.error('embed error:', kind, e?.message || e);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(e?.message || e) });
+    console.error('embed route error', kind, e?.message || e);
+    return res.status(502).json({ error:'Bad gateway', detail:String(e?.message || e) });
   }
 });
 
-// ── „Details“ einer Facility (Basis-Datensatz) per Filter (ohne embed)
+// ── Facility-„Details“ (Basisdatensatz per Filter; KEIN embed)
 app.get('/api/facilities/:id', async (req, res) => {
   const id = String(req.params.id || '').trim();
-
   const variants = [
-    `${EMBED_MAP.facilities}?id=${encodeURIComponent(id)}`,
-    `${EMBED_MAP.facilities}?facilityId=${encodeURIComponent(id)}`,
-    `${EMBED_MAP.facilities}?$filter=${encodeURIComponent(`id eq ${id}`)}`,
-    `${EMBED_MAP.facilities}?filter=${encodeURIComponent(`id eq ${id}`)}`,
+    `${MAP.facilities}?id=${encodeURIComponent(id)}`,
+    `${MAP.facilities}?facilityId=${encodeURIComponent(id)}`,
+    `${MAP.facilities}?$filter=${encodeURIComponent(`id eq ${id}`)}`,
+    `${MAP.facilities}?filter=${encodeURIComponent(`id eq ${id}`)}`
   ];
 
   try {
@@ -211,7 +244,7 @@ app.get('/api/facilities/:id', async (req, res) => {
     return res.status(404).json({ error: 'Facility not found', id });
   } catch (e) {
     console.error('facility/:id error:', e?.message || e);
-    return res.status(502).json({ error: 'Bad gateway', detail: String(e?.message || e) });
+    return res.status(502).json({ error:'Bad gateway', detail:String(e?.message || e) });
   }
 });
 
