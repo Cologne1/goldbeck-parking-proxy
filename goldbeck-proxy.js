@@ -12,6 +12,28 @@ const GB_USER  = process.env.GB_USER || 'CC webservicegps';
 const GB_PASS  = process.env.GB_PASS || 'webservice';
 const PORT     = Number(process.env.PORT || 4000);
 
+async function gbGet(path, { searchParams } = {}) {
+  const url = new URL(path, BASE_URL);
+  if (searchParams) Object.entries(searchParams).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await request(url, {
+    method: 'GET',
+    headers: {
+      'accept': 'application/json',
+      'authorization': 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64'),
+    },
+  });
+  if (res.statusCode >= 400) {
+    const text = await res.body.text();
+    throw new Error(`GB GET ${url} → ${res.statusCode}: ${text}`);
+  }
+  const ct = res.headers['content-type'] || '';
+  if (ct.includes('application/json')) {
+    return res.body.json();
+  }
+  // Fallback: Text (z.B. bei HTML, XML) – gib roh zurück
+  return res.body.text();
+}
+
 // Basic Auth Header (serverseitig)
 const basic = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base64');
 
