@@ -3,12 +3,14 @@
 // ---------- Helpers ----------
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
 const euro = (v) => {
   if (v == null || v === '') return '';
   const s = String(v).trim();
-  if (/[€]|eur/i.test(s)) return s;
-  return s.replace(/\./g, ',') + ' €';
+  if (s.includes('€')) return s;
+  return s.replace('.', ',') + ' €';
 };
+
 function pickArray(json) {
   if (Array.isArray(json)) return json;
   if (json && Array.isArray(json.items)) return json.items;
@@ -58,9 +60,7 @@ function extractAddressFromAttributes(obj) {
   const l2 = [zip, city].filter(Boolean).join(' ').trim();
   return [l1, l2].filter(Boolean).join(', ');
 }
-function splitLines(v) {
-  return String(v||'').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-}
+function splitLines(v) { return String(v||'').split(/\r?\n/).map(s => s.trim()).filter(Boolean); }
 function boolFromString(v) {
   if (v===true) return true;
   if (v===false) return false;
@@ -71,18 +71,18 @@ function boolFromString(v) {
   return null;
 }
 
-// Kombinierter Status aus Counters
-function combinedStatusFromOccupancy(occ) {
-  if (!occ || !Array.isArray(occ.counters) || !occ.counters.length) return 'unknown';
+// Kombinierter Status
+function combinedStatusFromOccupancy(occEntry) {
+  if (!occEntry || !Array.isArray(occEntry.counters) || !occEntry.counters.length) return 'unknown';
   const rank = { full:3, tight:2, free:1, unknown:0 };
   let best = 'unknown';
-  for (const c of occ.counters) {
+  for (const c of occEntry.counters) {
     const s = String(c.status||'').toLowerCase();
     if (rank[s] > rank[best]) best = s;
   }
   if (best !== 'unknown') return best;
   let max=0, free=0;
-  for (const c of occ.counters) {
+  for (const c of occEntry.counters) {
     if (typeof c.maxPlaces === 'number') max += c.maxPlaces;
     if (typeof c.freePlaces === 'number') free += c.freePlaces;
   }
@@ -93,7 +93,7 @@ function combinedStatusFromOccupancy(occ) {
   return 'full';
 }
 
-// Tarife heuristisch aus Attributes extrahieren (falls vorhanden)
+// Tarife heuristisch
 function extractRates(detail) {
   const attrs = collectAttributes(detail);
   const hourly  = attrVal(attrs, ['HOURLY_RATE','hourly','pro_stunde','STUNDENPREIS']);
@@ -105,11 +105,10 @@ function extractRates(detail) {
   if (monthly) bits.push(`Monat: ${euro(monthly)}`);
   return bits.join(' · ');
 }
-
 function extractClearance(detail) {
   const attrs = collectAttributes(detail);
-  const m = attrVal(attrs, ['CLEARANCE_METERS','EINFRAITTSHOEHE_M','EINFAHRTSHOEHE_M']);
-  const cm = attrVal(attrs, ['HEIGHT_LIMIT_CM','EINFAHRTSHOEHE_CM']);
+  const m = attrVal(attrs, ['CLEARANCE_METERS','EINFAHRTSHOEHE_M','EINFAHRTSHÖHE_M']);
+  const cm = attrVal(attrs, ['HEIGHT_LIMIT_CM','EINFAHRTSHOEHE_CM','EINFAHRTSHÖHE_CM']);
   if (m) return `${String(m).replace('.', ',')} m`;
   if (cm) return `${(Number(cm)/100).toFixed(2).replace('.', ',')} m`;
   return '';
@@ -121,9 +120,7 @@ function extractCapacity(detail) {
 }
 function extractFeatures(detail) {
   const attrs = collectAttributes(detail);
-  // Feature-Namen direkt als Tags, wenn vorhanden
   const features = (detail.features || []).map(f => f?.name).filter(Boolean);
-  // plus einzelne Attribute, falls gewünscht
   const extras = [];
   if (attrVal(attrs, ['ELEVATOR','AUFZUG'])) extras.push('Aufzug');
   if (attrVal(attrs, ['ROOFED','UEBERDACHT','ÜBERDACHT'])) extras.push('Überdacht');
@@ -152,18 +149,35 @@ async function apiJSON(url) {
   const ct = (r.headers.get('content-type')||'').toLowerCase();
   return ct.includes('json') ? r.json() : r.text();
 }
-const loadFacilityDefinitions = () => apiJSON('/api/facility-definitions');
-const loadFacilities = () => apiJSON('/api/facilities');
-const loadFacility = (id) => apiJSON(`/api/facilities/${encodeURIComponent(id)}`);
-const loadFacilityOccupancies = (id) => apiJSON(`/api/occupancies/facilities/${encodeURIComponent(id)}`);
-const loadChargingStations = () => apiJSON('/api/charging-stations');
-const loadChargingStation = (id) => apiJSON(`/api/charging-stations/${encodeURIComponent(id)}`);
 
-// ---------- Rendering: Liste ----------
+const loadFacilityDefinitions = () => apiJSON('/api/facility-definitions');
+const loadFacilities         = () => apiJSON('/api/facilities');
+const loadFacility           = (id) => apiJSON(`/api/facilities/${encodeURIComponent(id)}`);
+// Wichtig: komplette Occupancies holen – Client filtert!
+const loadAllOccupancies     = () => apiJSON('/api/occupancies');
+const loadChargingStations   = () => apiJSON('/api/charging-stations');
+const loadChargingStation    = (id) => apiJSON(`/api/charging-stations/${encodeURIComponent(id)}`);
+
+// ---------- State ----------
 let FAC_ALL = [];
 let FAC_FILTERED = [];
 let CS_ALL = [];
+let OCC_ALL = null; // erst beim ersten Bedarf laden
 
+async function ensureOccupanciesLoaded() {
+  if (OCC_ALL) return OCC_ALL;
+  const data = await loadAllOccupancies();
+  OCC_ALL = pickArray(data);
+  return OCC_ALL;
+}
+function occForFacility(id) {
+  const fid = String(id);
+  const arr = Array.isArray(OCC_ALL) ? OCC_ALL.filter(x => String(x?.facilityId) === fid) : [];
+  // Es gibt i. d. R. genau einen Eintrag pro Facility; die Tabelle nutzt arr[0].counters
+  return arr;
+}
+
+// ---------- Rendering: Liste ----------
 function renderFacilitiesTable(rows) {
   const tbody = $('#facilitiesTbody');
   tbody.innerHTML = rows.map(f => `
@@ -213,16 +227,16 @@ function chips(container, items) {
   container.innerHTML = (items||[]).filter(Boolean).map(x => `<span class="tag">${String(x)}</span>`).join('') || '–';
 }
 
-function renderFacilityOverview(detail, occ) {
+function renderFacilityOverview(detail, occEntryArr) {
+  const occEntry = (Array.isArray(occEntryArr) && occEntryArr.length) ? occEntryArr[0] : null;
+
   $('#facName').textContent = detail?.name || '–';
   $('#facAddress').textContent = extractAddressFromAttributes(detail) || '–';
   $('#facClearance').textContent = extractClearance(detail) || '–';
   $('#facCapacity').textContent = extractCapacity(detail) || '–';
   $('#facRates').textContent = extractRates(detail) || '–';
 
-  const combined = occ && Array.isArray(occ) && occ.length
-    ? combinedStatusFromOccupancy(occ[0])
-    : (detail._occ ? combinedStatusFromOccupancy(detail._occ) : 'unknown');
+  const combined = occEntry ? combinedStatusFromOccupancy(occEntry) : 'unknown';
   $('#facStatus').textContent = combined || 'unknown';
 
   chips($('#facFeatures'), extractFeatures(detail));
@@ -231,21 +245,23 @@ function renderFacilityOverview(detail, occ) {
 function renderFacilityRaw(detail) {
   $('#facRaw').textContent = safeJson(detail);
 }
-function renderOccupancyTable(occ) {
+function renderOccupancyTable(occEntryArr) {
   const tbody = $('#occTable');
   const rows = [];
-  if (Array.isArray(occ) && occ.length && Array.isArray(occ[0].counters)) {
-    for (const c of occ[0].counters) {
+  const occEntry = (Array.isArray(occEntryArr) && occEntryArr.length) ? occEntryArr[0] : null;
+
+  if (occEntry && Array.isArray(occEntry.counters)) {
+    for (const c of occEntry.counters) {
       rows.push(`
-        <tr>
-          <td>${String(c.name || c.key || '')}</td>
-          <td>${String(c.type?.type || '')}</td>
-          <td>${c.maxPlaces ?? ''}</td>
-          <td>${c.occupiedPlaces ?? ''}</td>
-          <td>${c.freePlaces ?? ''}</td>
-          <td>${String(c.status || '')}</td>
-        </tr>
-      `);
+  <tr>
+  <td>${String(c.name || c.key || '')}</td>
+  <td>${String(c.type?.type || '')}</td>
+  <td>${c.maxPlaces ?? ''}</td>
+  <td>${c.occupiedPlaces ?? ''}</td>
+  <td>${c.freePlaces ?? ''}</td>
+  <td>${String(c.status || '')}</td>
+</tr>
+  `);
     }
   }
   tbody.innerHTML = rows.join('') || `<tr><td colspan="6">Keine Zählstellen vorhanden.</td></tr>`;
@@ -253,16 +269,19 @@ function renderOccupancyTable(occ) {
 
 async function showFacilityDetails(id) {
   try {
-    const [detail, occ] = await Promise.all([
-      loadFacility(id),                    // /api/facilities/:id
-      loadFacilityOccupancies(id).catch(()=>[]) // nur diese ID
+    // Details + einmalig die komplette Occupancy-Liste
+    const [detail] = await Promise.all([
+      loadFacility(id),
+      ensureOccupanciesLoaded()
     ]);
+    const occArr = occForFacility(id);
+
     CURRENT_FAC = detail;
     $('#occFacId').textContent = String(id);
-    $('#occCombined').textContent = (Array.isArray(occ)&&occ.length) ? combinedStatusFromOccupancy(occ[0]) : 'unknown';
+    $('#occCombined').textContent = (occArr.length ? combinedStatusFromOccupancy(occArr[0]) : 'unknown');
 
-    renderFacilityOverview(detail, occ);
-    renderOccupancyTable(occ);
+    renderFacilityOverview(detail, occArr);
+    renderOccupancyTable(occArr);
     renderFacilityRaw(detail);
     setOverviewTab('overview');
   } catch (e) {
@@ -277,10 +296,10 @@ async function showFacilityDetails(id) {
 function renderChargingList(list) {
   const tbody = $('#chargeTbody');
   tbody.innerHTML = list.map(x => `
-    <tr>
-      <td><a class="id-link" href="#" data-csid="${String(x.id)}">${String(x.id)}</a></td>
-      <td>${String(x.name || x.label || 'Ladestation')}</td>
-    </tr>
+  <tr>
+  <td><a class="id-link" href="#" data-csid="${String(x.id)}">${String(x.id)}</a></td>
+  <td>${String(x.name || x.label || 'Ladestation')}</td>
+</tr>
   `).join('');
   $$('#chargeTbody .id-link').forEach(a => {
     a.addEventListener('click', async (e) => {

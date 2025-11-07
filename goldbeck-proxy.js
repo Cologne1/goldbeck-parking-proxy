@@ -42,7 +42,7 @@ async function proxyGet(res, upstreamPath, query = '') {
 // Static UI
 app.use('/', express.static(path.join(__dirname, 'public')));
 
-// --- API passt genau zu deiner Vorgabe ---
+// --- API exakt laut deiner Vorgabe ---
 app.get('/api/facilities', (req, res) =>
   proxyGet(res, '/services/v4x0/facilities', reqQuery(req))
 );
@@ -58,12 +58,10 @@ app.get('/api/features', (req, res) =>
 app.get('/api/filecontent', (req, res) =>
   proxyGet(res, '/services/v4x0/filecontent', reqQuery(req))
 );
+
+// WICHTIG: komplette Occupancies (Client filtert nach facilityId)
 app.get('/api/occupancies', (req, res) =>
   proxyGet(res, '/services/v4x0/occupancies', reqQuery(req))
-);
-// nur Occupancies für eine Facility (Detail)
-app.get('/api/occupancies/facilities/:id', (req, res) =>
-  proxyGet(res, `/services/v4x0/occupancies/facilities/${encodeURIComponent(req.params.id)}`)
 );
 
 // E-Charging
