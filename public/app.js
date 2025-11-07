@@ -3,8 +3,12 @@
 // ---------- Helpers ----------
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-const € = (v) => (v==null || v==='') ? '' : `${String(v).replace('.', ',')}${String(v).includes('€')?'':' €'}`;
-
+const euro = (v) => {
+  if (v == null || v === '') return '';
+  const s = String(v).trim();
+  if (/[€]|eur/i.test(s)) return s;
+  return s.replace(/\./g, ',') + ' €';
+};
 function pickArray(json) {
   if (Array.isArray(json)) return json;
   if (json && Array.isArray(json.items)) return json.items;
@@ -96,9 +100,9 @@ function extractRates(detail) {
   const daymax  = attrVal(attrs, ['DAY_MAX','day_max','tageshöchstsatz','TAGESMAX']);
   const monthly = attrVal(attrs, ['MONTHLY','DAUERSTELLPLATZ','MONTHLY_LONG_TERM']);
   const bits = [];
-  if (hourly) bits.push(`Stunde: ${€(hourly)}`);
-  if (daymax) bits.push(`Tag: ${€(daymax)}`);
-  if (monthly) bits.push(`Monat: ${€(monthly)}`);
+  if (hourly) bits.push(`Stunde: ${euro(hourly)}`);
+  if (daymax) bits.push(`Tag: ${euro(daymax)}`);
+  if (monthly) bits.push(`Monat: ${euro(monthly)}`);
   return bits.join(' · ');
 }
 
@@ -111,7 +115,9 @@ function extractClearance(detail) {
   return '';
 }
 function extractCapacity(detail) {
-  return detail.capacityTotal ?? detail.totalCapacity ?? attrVal(collectAttributes(detail), ['CAPACITY_TOTAL','TOTAL_CAPACITY']) || '';
+  const attrs = collectAttributes(detail);
+  const val = (detail.capacityTotal ?? detail.totalCapacity ?? attrVal(attrs, ['CAPACITY_TOTAL', 'TOTAL_CAPACITY']));
+  return val || '';
 }
 function extractFeatures(detail) {
   const attrs = collectAttributes(detail);
