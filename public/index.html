@@ -2,192 +2,176 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Goldbeck – Parkhäuser & E-Ladestationen</title>
+  <title>Goldbeck Parking – Test UI</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --blue:#003399; --orange:#ff9900; --bg:#f6f7fb; --ink:#222; --muted:#6a6f7a; --card:#fff; --line:#e8eaf0; }
+    :root { --blue:#003399; --accent:#ff9900; --bg:#f6f7fb; --ink:#1f2430; --muted:#6b7280; --card:#fff; --line:#e5e7eb; }
     * { box-sizing: border-box; }
-    body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial; color:var(--ink); background:var(--bg); }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:var(--bg); color:var(--ink); }
     header { background:var(--blue); color:#fff; padding:14px 20px; }
-    header h1 { margin:0; font-size:18px; letter-spacing:.2px; }
-    main { max-width:1260px; margin:16px auto; padding:0 16px; }
-    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
-    .card h2 { margin:2px 0 10px; font-size:18px; }
-    .row { display:grid; grid-template-columns: repeat(12,1fr); gap:10px; align-items:end; margin-bottom:12px; }
+    header h1 { margin:0; font-size:18px; font-weight:600; }
+    main { padding: 16px; max-width: 1320px; margin: 0 auto; }
+
+    .toolbar { display:grid; grid-template-columns: 2fr 1fr 1fr auto; gap:10px; align-items:end; margin-bottom:12px; }
     .group { display:flex; flex-direction:column; gap:6px; }
-    .col-1{grid-column:span 1}.col-2{grid-column:span 2}.col-3{grid-column:span 3}.col-4{grid-column:span 4}.col-5{grid-column:span 5}.col-6{grid-column:span 6}.col-12{grid-column:span 12}
-    label { font-size:12px; color:var(--muted); }
-    select,input,button { padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; font-size:14px; }
+    label { font-size:12px; color:#e5e7eb; }
+    .group label.dark { color:#374151; }
+    input, select, button { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; }
     button { background:var(--blue); color:#fff; border:none; cursor:pointer; }
-    button:hover { background:var(--orange); }
-    .pill { background:var(--orange); color:#fff; border-radius:999px; padding:3px 10px; font-size:12px; display:inline-block; }
-    table { width:100%; border-collapse:collapse; font-size:14px; }
-    th,td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; }
-    th { background:#fafafa; position:sticky; top:0; }
-    .tblwrap { max-height:280px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
-    .rowlink { color:#0b5; cursor:pointer; text-decoration:underline; }
-    .kv { display:grid; grid-template-columns: 160px 1fr; gap:6px; font-size:14px; }
-    .kv div:nth-child(odd){color:#4b5563}
-    .badges { display:flex; flex-wrap:wrap; gap:6px; }
-    .badge { background:#eef2ff; border:1px solid #dbe5ff; border-radius:999px; padding:4px 10px; font-size:12px; }
-    .status-free{ background:#e8f9e8; border-color:#b7e4b7; }
-    .status-tight{ background:#fff6e1; border-color:#ffe0a8; }
-    .status-full{ background:#ffeaea; border-color:#ffc1c1; }
-    .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    pre { background:#0b1020; color:#b8f4b8; padding:12px; border-radius:10px; max-height:48vh; overflow:auto; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; white-space: break-spaces; }
-    small { color:var(--muted); }
+    button:hover { background:#062a97; }
+    .ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
+    .ghost:hover { border-color:#cbd5e1; }
+
+    .layout { display:grid; grid-template-columns: 380px 1fr 420px; gap:14px; }
+    .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+    .panel h3 { margin:0 0 10px; font-size:15px; }
+    .muted { color:var(--muted); font-size:12px; }
+
+    .list { max-height:72vh; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+    .list table { width:100%; border-collapse: collapse; font-size:13px; }
+    .list th, .list td { border-bottom:1px solid var(--line); padding:8px; text-align:left; }
+    .list tr:hover { background:#fafafa; }
+    .id-link { color:var(--blue); text-decoration:none; }
+    .id-link:hover { text-decoration:underline; }
+
+    .kv { display:grid; grid-template-columns: 160px 1fr; gap:6px 10px; font-size:14px; }
+    .kv b { color:#111; }
+    .tagrow { display:flex; gap:6px; flex-wrap:wrap; }
+    .tag { background:#eef2ff; border:1px solid #dbeafe; border-radius:999px; padding:2px 8px; font-size:12px; }
+
+    pre { white-space: break-spaces; background:#0b1020; color:#c4f0c4; padding:12px; border-radius:8px; font-size:12px; max-height:34vh; overflow:auto; }
+
+    .subtabs { display:flex; gap:8px; margin-bottom:8px; }
+    .subtabs button { padding:6px 8px; border-radius:6px; }
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
   </style>
 </head>
 <body>
-<header><h1>Goldbeck – Parkhäuser & E-Ladestationen</h1></header>
+<header><h1>Goldbeck Parking – Test UI</h1></header>
+<main>
 
-<main class="grid">
-  <!-- PARKHÄUSER -->
-  <section class="card">
-    <h2>Parkhäuser</h2>
-
-    <!-- LISTE + FILTER -->
-    <div class="row">
-      <div class="group col-3">
-        <label for="facDef">Standort-Typ (definitionId)</label>
-        <select id="facDef"><option value="">– alle –</option></select>
+  <!-- Toolbar: Suche + Laden -->
+  <div class="panel">
+    <div class="toolbar">
+      <div class="group">
+        <label class="dark" for="filterText">Filter (Volltext)</label>
+        <input id="filterText" placeholder="z. B. Stadt, Name, ID ..." />
       </div>
-      <div class="group col-4">
-        <label for="facQuery">Suche (Name, Stadt, …)</label>
-        <input id="facQuery" placeholder="Volltextfilter" />
+      <div class="group">
+        <label class="dark" for="definitionId">Art</label>
+        <select id="definitionId">
+          <option value="">– alle –</option>
+        </select>
       </div>
-      <div class="group col-2">
-        <label>&nbsp;</label>
-        <button id="btnFacList">Liste laden</button>
+      <div class="group">
+        <label class="dark">&nbsp;</label>
+        <button id="btnLoadFacilities">Parkhäuser laden</button>
       </div>
-      <div class="group col-1">
-        <label>&nbsp;</label>
-        <span id="facListCount" class="pill">0</span>
+      <div class="group" style="align-items:flex-end;">
+        <span id="countBadge" class="muted">0 Treffer</span>
       </div>
     </div>
+    <div class="muted">Tipp: In der Liste einen Eintrag anklicken → Details + Belegung (nur diese Standort-ID). Rechts separat: E-Ladestationen.</div>
+  </div>
 
-    <div class="tblwrap" id="facTableWrap">
-      <table id="facTable">
-        <thead><tr><th>ID</th><th>Name</th><th>Typ</th><th>Ort</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <small>Hinweis: Klick auf die <em>ID</em> lädt die Detailansicht unten.</small>
-
-    <!-- DETAILS -->
-    <div class="row" style="margin-top:16px;">
-      <div class="group col-3">
-        <label for="facilityId">Standort-ID</label>
-        <input id="facilityId" placeholder="z. B. 2106" />
+  <div class="layout">
+    <!-- Linke Spalte: Liste -->
+    <aside class="panel">
+      <h3>Parkhäuser (Liste)</h3>
+      <div class="list" id="facilitiesListBox">
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th class="muted">Definition</th></tr></thead>
+          <tbody id="facilitiesTbody"></tbody>
+        </table>
       </div>
-      <div class="group col-5">
-        <label>Zusatzdaten laden</label>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <label><input type="checkbox" class="fac-extra" value="facilityOccupancies" checked /> Belegung</label>
-          <label><input type="checkbox" class="fac-extra" value="features" checked /> Ausstattung</label>
-          <label><input type="checkbox" class="fac-extra" value="contactData" /> Kontakt</label>
-          <label><input type="checkbox" class="fac-extra" value="methods" /> Methoden</label>
-          <label><input type="checkbox" class="fac-extra" value="fileAttachments" /> Dateien</label>
-          <label><input type="checkbox" class="fac-extra" value="facilityStatus" /> Status</label>
-          <label><input type="checkbox" class="fac-extra" value="deviceStatus" /> Geräte-Status</label>
+    </aside>
+
+    <!-- Mitte: Details zum Parkhaus -->
+    <section class="panel">
+      <h3>Details Parkhaus</h3>
+      <div class="subtabs">
+        <button id="tabOverview" class="ghost">Übersicht</button>
+        <button id="tabOccupancy" class="ghost">Belegung</button>
+        <button id="tabRaw" class="ghost">Rohdaten</button>
+      </div>
+
+      <div id="viewOverview">
+        <div class="kv">
+          <b>Name</b><div id="facName">–</div>
+          <b>Adresse</b><div id="facAddress">–</div>
+          <b>Einfahrtshöhe</b><div id="facClearance">–</div>
+          <b>Gesamtplätze</b><div id="facCapacity">–</div>
+          <b>Belegung</b><div id="facStatus">–</div>
+          <b>Tarife</b><div id="facRates">–</div>
+          <b>Features</b><div id="facFeatures" class="tagrow"></div>
+          <b>Zahlung</b><div id="facPayments" class="tagrow"></div>
         </div>
       </div>
-      <div class="group col-2">
-        <label>&nbsp;</label>
-        <button id="btnFacility">Details laden</button>
-      </div>
-      <div class="group col-2">
-        <label>&nbsp;</label>
-        <span id="facCount" class="pill">1</span>
-      </div>
-    </div>
 
-    <div class="two">
-      <div>
-        <h3>Gerendert</h3>
-        <div id="facRendered" class="kv"></div>
-        <div style="margin-top:8px;"><div id="facBadges" class="badges"></div></div>
+      <div id="viewOccupancy" style="display:none;">
+        <div class="kv">
+          <b>Standort-ID</b><div id="occFacId">–</div>
+          <b>Kombinierter Status</b><div id="occCombined">–</div>
+        </div>
+        <div class="list" style="margin-top:8px;">
+          <table>
+            <thead>
+            <tr>
+              <th>Key/Name</th>
+              <th>Typ</th>
+              <th>max</th>
+              <th>belegt</th>
+              <th>frei</th>
+              <th>Status</th>
+            </tr>
+            </thead>
+            <tbody id="occTable"></tbody>
+          </table>
+        </div>
       </div>
-      <div>
-        <h3>Rohdaten</h3>
-        <pre id="facJson">{ }</pre>
-      </div>
-    </div>
-  </section>
 
-  <!-- E-LADESTATIONEN -->
-  <section class="card">
-    <h2>E-Ladestationen</h2>
+      <div id="viewRaw" style="display:none;">
+        <pre id="facRaw">{ }</pre>
+      </div>
+    </section>
 
-    <!-- LISTE + FILTER -->
-    <div class="row">
-      <div class="group col-4">
-        <label for="chgQuery">Suche (Name, Adresse, …)</label>
-        <input id="chgQuery" placeholder="Volltextfilter" />
+    <!-- Rechte Spalte: E-Lade -->
+    <aside class="panel">
+      <h3>E-Ladestationen</h3>
+      <div class="grid2">
+        <div class="group">
+          <label class="dark" for="chargeFilter">Filter</label>
+          <input id="chargeFilter" placeholder="z. B. Stadt, Name ..." />
+        </div>
+        <div class="group">
+          <label class="dark">&nbsp;</label>
+          <button id="btnLoadCharging" class="ghost">Ladestationen laden</button>
+        </div>
       </div>
-      <div class="group col-2">
-        <label for="chgLocale">Sprache</label>
-        <select id="chgLocale">
-          <option value="de-DE">de-DE</option>
-          <option value="en-US">en-US</option>
-        </select>
+      <div class="list" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>ID</th><th>Name</th></tr></thead>
+          <tbody id="chargeTbody"></tbody>
+        </table>
       </div>
-      <div class="group col-2">
-        <label>&nbsp;</label>
-        <button id="btnChgList">Liste laden</button>
-      </div>
-      <div class="group col-1">
-        <label>&nbsp;</label>
-        <span id="chgListCount" class="pill">0</span>
-      </div>
-    </div>
 
-    <div class="tblwrap" id="chgTableWrap">
-      <table id="chgTable">
-        <thead><tr><th>ID</th><th>Name</th><th>Adresse</th><th>Stecker</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <small>Klick auf die <em>ID</em> lädt die Detailansicht unten.</small>
-
-    <!-- DETAILS -->
-    <div class="row" style="margin-top:16px;">
-      <div class="group col-3">
-        <label for="chargeId">Ladepunkt-ID</label>
-        <input id="chargeId" placeholder="z. B. 123" />
+      <h3 style="margin-top:12px;">Details Ladestation</h3>
+      <div class="kv">
+        <b>Name</b><div id="csName">–</div>
+        <b>Adresse</b><div id="csAddress">–</div>
+        <b>Erneuerbare</b><div id="csRenewable">–</div>
+        <b>Dynamische Leistung</b><div id="csDynPower">–</div>
+        <b>Authentifizierung</b><div id="csAuth" class="tagrow"></div>
+        <b>Zahlung</b><div id="csPay" class="tagrow"></div>
+        <b>Zugang</b><div id="csAccess">–</div>
+        <b>Eichrecht</b><div id="csCalLaw">–</div>
+        <b>Geräte-ID</b><div id="csDev">–</div>
       </div>
-      <div class="group col-3">
-        <label for="chargeLocale">Sprache</label>
-        <select id="chargeLocale">
-          <option value="de-DE">de-DE</option>
-          <option value="en-US">en-US</option>
-        </select>
-      </div>
-      <div class="group col-2">
-        <label>&nbsp;</label>
-        <button id="btnCharge">Details laden</button>
-      </div>
-      <div class="group col-2">
-        <label>&nbsp;</label>
-        <span id="chgCount" class="pill">1</span>
-      </div>
-    </div>
-
-    <div class="two">
-      <div>
-        <h3>Gerendert</h3>
-        <div id="chgRendered" class="kv"></div>
-        <div style="margin-top:8px;"><div id="chgBadges" class="badges"></div></div>
-      </div>
-      <div>
-        <h3>Rohdaten</h3>
-        <pre id="chgJson">{ }</pre>
-      </div>
-    </div>
-  </section>
+      <h4>Rohdaten</h4>
+      <pre id="csRaw">{ }</pre>
+    </aside>
+  </div>
 </main>
-
 <script src="./app.js"></script>
 </body>
 </html>
