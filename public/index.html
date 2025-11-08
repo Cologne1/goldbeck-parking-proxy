@@ -43,7 +43,15 @@
 
     .subtabs { display:flex; gap:8px; margin-bottom:8px; }
     .subtabs button { padding:6px 8px; border-radius:6px; }
+
     .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; }
+    .pill { display:inline-block; background:var(--accent); color:#fff; border-radius:999px; padding:2px 8px; font-size:12px; }
+    .hr { height:1px; background:var(--line); margin:10px 0; }
+    .cards { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .card { border:1px solid var(--line); border-radius:8px; padding:8px; }
+    .card h4 { margin:0 0 6px; font-size:13px; }
+    .mini { font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
@@ -71,7 +79,9 @@
         <span id="countBadge" class="muted">0 Treffer</span>
       </div>
     </div>
-    <div class="muted">Tipp: In der Liste einen Eintrag anklicken → Details + Belegung (nur diese Standort-ID). Rechts separat: E-Ladestationen.</div>
+    <div class="muted">
+      Tipp: In der Liste einen Eintrag anklicken → Details, Ausstattung, Belegung &amp; Preise (nur diese Standort-ID). Rechts separat: E-Ladestationen.
+    </div>
   </div>
 
   <div class="layout">
@@ -88,13 +98,18 @@
 
     <!-- Mitte: Details zum Parkhaus -->
     <section class="panel">
-      <h3>Details Parkhaus</h3>
+      <h3>Details Parkhaus <span id="facHdrId" class="pill" style="display:none;"></span></h3>
+
+      <!-- Subtabs -->
       <div class="subtabs">
-        <button id="tabOverview" class="ghost">Übersicht</button>
+        <button id="tabOverview"  class="ghost">Übersicht</button>
         <button id="tabOccupancy" class="ghost">Belegung</button>
-        <button id="tabRaw" class="ghost">Rohdaten</button>
+        <button id="tabDevices"   class="ghost">Ausstattung</button>
+        <button id="tabPrices"    class="ghost">Preise</button>
+        <button id="tabRaw"       class="ghost">Rohdaten</button>
       </div>
 
+      <!-- Übersicht -->
       <div id="viewOverview">
         <div class="kv">
           <b>Name</b><div id="facName">–</div>
@@ -102,16 +117,23 @@
           <b>Einfahrtshöhe</b><div id="facClearance">–</div>
           <b>Gesamtplätze</b><div id="facCapacity">–</div>
           <b>Belegung</b><div id="facStatus">–</div>
-          <b>Tarife</b><div id="facRates">–</div>
           <b>Features</b><div id="facFeatures" class="tagrow"></div>
           <b>Zahlung</b><div id="facPayments" class="tagrow"></div>
         </div>
+        <div class="hr"></div>
+        <div class="grid3">
+          <div><span class="mini">Land</span><div id="facCountry">–</div></div>
+          <div><span class="mini">Koordinaten</span><div id="facGeo">–</div></div>
+          <div><span class="mini">Verantwortlich</span><div id="facContact">–</div></div> <!-- TODO app.js -->
+        </div>
       </div>
 
+      <!-- Belegung -->
       <div id="viewOccupancy" style="display:none;">
         <div class="kv">
           <b>Standort-ID</b><div id="occFacId">–</div>
           <b>Kombinierter Status</b><div id="occCombined">–</div>
+          <b>Letzte Aktualisierung</b><div id="occUpdated">–</div>
         </div>
         <div class="list" style="margin-top:8px;">
           <table>
@@ -130,6 +152,61 @@
         </div>
       </div>
 
+      <!-- Ausstattung / Devices -->
+      <div id="viewDevices" style="display:none;">
+        <div class="list">
+          <table>
+            <thead>
+            <tr>
+              <th>Gerät</th>
+              <th>Typ</th>
+              <th>Zone</th>
+              <th>Status</th>
+              <th class="muted">ID</th>
+            </tr>
+            </thead>
+            <tbody id="devicesTbody"></tbody> <!-- TODO app.js -->
+          </table>
+        </div>
+
+        <h4 style="margin-top:10px;">Features (aus Facility)</h4>
+        <div class="tagrow" id="facFeatTags"></div> <!-- TODO app.js -->
+
+        <h4 style="margin-top:10px;">Attribute</h4>
+        <div class="list">
+          <table>
+            <thead><tr><th>Key</th><th>Wert</th></tr></thead>
+            <tbody id="facAttrTbody"></tbody> <!-- TODO app.js -->
+          </table>
+        </div>
+      </div>
+
+      <!-- Preise -->
+      <div id="viewPrices" style="display:none;">
+        <div class="cards">
+          <div class="card">
+            <h4>Tarife Parken</h4>
+            <div id="priceParking">–</div> <!-- TODO app.js: aus Attributes/Features ableiten -->
+          </div>
+          <div class="card">
+            <h4>Tarife Laden</h4>
+            <div id="priceCharging">–</div> <!-- TODO app.js: falls am Standort ableitbar -->
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="grid2">
+          <div>
+            <span class="mini">Zeitbasierte Preise</span>
+            <div id="priceTimeBased">–</div> <!-- TODO app.js -->
+          </div>
+          <div>
+            <span class="mini">Langzeit / Vertrag</span>
+            <div id="priceLongTerm">–</div> <!-- TODO app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Rohdaten -->
       <div id="viewRaw" style="display:none;">
         <pre id="facRaw">{ }</pre>
       </div>

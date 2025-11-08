@@ -64,7 +64,17 @@ app.get('/api/occupancies', (req, res) =>
   proxyGet(res, '/services/v4x0/occupancies', reqQuery(req))
 );
 
-// E-Charging
+// ➕ NEU: Occupancies einer spezifischen Facility (iPCM REST)
+app.get('/api/occupancies/facility/:id', (req, res) =>
+  proxyGet(res, `/iPCM/rest/v1/operation/occupancies/facility/${encodeURIComponent(req.params.id)}`, reqQuery(req))
+);
+
+// ➕ NEU: Devices/Ausstattung einer spezifischen Facility (iPCM REST)
+app.get('/api/devices/facility/:id', (req, res) =>
+  proxyGet(res, `/iPCM/rest/v1/configuration/devices/facility/${encodeURIComponent(req.params.id)}`, reqQuery(req))
+);
+
+// E-Charging (unverändert)
 app.get('/api/charging-stations', (req, res) =>
   proxyGet(res, '/services/charging/v1x0/charging-stations', reqQuery(req))
 );
