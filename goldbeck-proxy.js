@@ -8,6 +8,7 @@ const app = express();
 
 // ---- ENV ----
 const BASE_URL = process.env.GB_BASE_URL || 'https://control.goldbeck-parking.de/ipaw';
+const BASE_URL_IPCM = process.env.GB_BASE_URL_IPCM || 'https://control.goldbeck-parking.de';
 const GB_USER  = process.env.GB_USER || 'CC webservicegps';
 const GB_PASS  = process.env.GB_PASS || 'webservice';
 const PORT     = Number(process.env.PORT || 4000);
@@ -16,8 +17,9 @@ const basic    = 'Basic ' + Buffer.from(`${GB_USER}:${GB_PASS}`).toString('base6
 function isJson(ct = '') { return /\bjson\b/i.test(ct); }
 function reqQuery(req)   { return req.url.split('?')[1] || ''; }
 
-async function proxyGet(res, upstreamPath, query = '') {
-  const url = `${BASE_URL}${upstreamPath}${query ? `?${query}` : ''}`;
+async function proxyGet(res, upstreamPath, query = '', base) {
+  const baseurl = base || BASE_URL;
+  const url = `${base}${upstreamPath}${query ? `?${query}` : ''}`;
   try {
     const r = await request(url, {
       method: 'GET',
@@ -44,42 +46,42 @@ app.use('/', express.static(path.join(__dirname, 'public')));
 
 // --- API exakt laut deiner Vorgabe ---
 app.get('/api/facilities', (req, res) =>
-  proxyGet(res, '/services/v4x0/facilities', reqQuery(req))
+  proxyGet(res, '/services/v4x0/facilities', reqQuery(req), BASE_URL)
 );
 app.get('/api/facilities/:id', (req, res) =>
-  proxyGet(res, `/services/v4x0/facilities/${encodeURIComponent(req.params.id)}`, reqQuery(req))
+  proxyGet(res, `/services/v4x0/facilities/${encodeURIComponent(req.params.id)}`, reqQuery(req), BASE_URL)
 );
 app.get('/api/facility-definitions', (req, res) =>
-  proxyGet(res, '/services/v4x0/facilitydefinitions', reqQuery(req))
+  proxyGet(res, '/services/v4x0/facilitydefinitions', reqQuery(req), BASE_URL)
 );
 app.get('/api/features', (req, res) =>
-  proxyGet(res, '/services/v4x0/features', reqQuery(req))
+  proxyGet(res, '/services/v4x0/features', reqQuery(req), BASE_URL)
 );
 app.get('/api/filecontent', (req, res) =>
-  proxyGet(res, '/services/v4x0/filecontent', reqQuery(req))
+  proxyGet(res, '/services/v4x0/filecontent', reqQuery(req), BASE_URL)
 );
 
 // WICHTIG: komplette Occupancies (Client filtert nach facilityId)
 app.get('/api/occupancies', (req, res) =>
-  proxyGet(res, '/services/v4x0/occupancies', reqQuery(req))
+  proxyGet(res, '/services/v4x0/occupancies', reqQuery(req), BASE_URL)
 );
 
 // ➕ NEU: Occupancies einer spezifischen Facility (iPCM REST)
 app.get('/api/occupancies/facility/:id', (req, res) =>
-  proxyGet(res, `/iPCM/rest/v1/operation/occupancies/facility/${encodeURIComponent(req.params.id)}`, reqQuery(req))
+  proxyGet(res, `/iPCM/rest/v1/operation/occupancies/facility/${encodeURIComponent(req.params.id)}`, reqQuery(req), BASE_URL_IPCM)
 );
 
 // ➕ NEU: Devices/Ausstattung einer spezifischen Facility (iPCM REST)
 app.get('/api/devices/facility/:id', (req, res) =>
-  proxyGet(res, `/iPCM/rest/v1/configuration/devices/facility/${encodeURIComponent(req.params.id)}`, reqQuery(req))
+  proxyGet(res, `/iPCM/rest/v1/configuration/devices/facility/${encodeURIComponent(req.params.id)}`, reqQuery(req), BASE_URL_IPCM)
 );
 
 // E-Charging (unverändert)
 app.get('/api/charging-stations', (req, res) =>
-  proxyGet(res, '/services/charging/v1x0/charging-stations', reqQuery(req))
+  proxyGet(res, '/services/charging/v1x0/charging-stations', reqQuery(req), BASE_URL)
 );
 app.get('/api/charging-stations/:id', (req, res) =>
-  proxyGet(res, `/services/charging/v1x0/charging-stations/${encodeURIComponent(req.params.id)}`, reqQuery(req))
+  proxyGet(res, `/services/charging/v1x0/charging-stations/${encodeURIComponent(req.params.id)}`, reqQuery(req), BASE_URL)
 );
 app.get('/api/charging-files/:fileAttachmentId', (req, res) =>
   proxyGet(res, `/services/charging/v1x0/files/${encodeURIComponent(req.params.fileAttachmentId)}`)
