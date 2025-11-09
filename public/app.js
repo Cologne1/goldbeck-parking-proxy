@@ -1,47 +1,51 @@
 // public/app.js
 
-// ---------- Mini-DOM ----------
+// ---------- Mini-Helpers ----------
 const $  = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-const setText = (el, v) => { if (el) el.textContent = v; };
-const setHTML = (el, v) => { if (el) el.innerHTML = v; };
 
-// ---------- Formatting ----------
+function safeJson(v) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
+function toLowerJsonStr(x) { try { return JSON.stringify(x).toLowerCase(); } catch { return ''; } }
+function splitLines(v) { return String(v || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean); }
+
 const euro = (v) => {
   if (v == null || v === '') return '';
   const s = String(v).trim();
   if (s.includes('€')) return s;
+  // einfache Deutsch-Formatierung für Komma
   return s.replace('.', ',') + ' €';
 };
-const safeJson = (v) => { try { return JSON.stringify(v, null, 2); } catch { return String(v); } };
-const splitLines = (v) => String(v || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
 
-// ---------- JSON Helpers ----------
 function pickArray(json) {
   if (Array.isArray(json)) return json;
-  if (json && Array.isArray(json.items))   return json.items;
+  if (json && Array.isArray(json.items)) return json.items;
   if (json && Array.isArray(json.results)) return json.results;
   if (json && Array.isArray(json.content)) return json.content;
   if (json && typeof json === 'object') {
-    const firstArr = Object.values(json).find(v => Array.isArray(v));
+    const firstArr = Object.values(json).find((v) => Array.isArray(v));
     if (Array.isArray(firstArr)) return firstArr;
   }
   return [];
 }
-function toLowerJsonStr(x) { try { return JSON.stringify(x).toLowerCase(); } catch { return ''; } }
 
-// ---------- Attribute Helpers ----------
 function collectAttributes(obj) {
-  return Array.isArray(obj?.attributes) ? obj.attributes : [];
+  return Array.isArray(obj && obj.attributes) ? obj.attributes : [];
 }
-function attrVal(attrsOrDetail, keys) {
-  const attrs = Array.isArray(attrsOrDetail) ? attrsOrDetail : collectAttributes(attrsOrDetail);
-  const lower = keys.map(k => String(k).toLowerCase());
-  const hit = (attrs || []).find(a => lower.includes(String(a?.key).toLowerCase()));
-  return hit?.value ?? '';
+
+function attrVal(attrs, keys) {
+  const lower = keys.map((k) => String(k).toLowerCase());
+  for (let i = 0; i < (attrs || []).length; i++) {
+    const a = attrs[i];
+    if (!a) continue;
+    const k = String(a.key || '').toLowerCase();
+    if (lower.includes(k)) return a.value != null ? a.value : '';
+  }
+  return '';
 }
+
+// POSTAL_ADDRESS: "Straße\nPLZ\nOrt\nLändercode"
 function parsePostalAddressBlock(block) {
-  const lines = String(block).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const lines = String(block).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   if (!lines.length) return '';
   const street = lines[0] || '';
   let zip = '', city = '', country = '';
@@ -55,43 +59,214 @@ function parsePostalAddressBlock(block) {
   const c = country === 'DEU' ? 'DE' : country;
   return [street, line2, c].filter(Boolean).join(', ');
 }
-function extractAddressFromAttributes(detail) {
-  const attrs = collectAttributes(detail);
-  const postal = attrs.find(a => String(a?.key).toUpperCase() === 'POSTAL_ADDRESS')?.value;
-  if (postal) return parsePostalAddressBlock(postal);
+
+function extractAddressFromAttributes(obj) {
+  const attrs = collectAttributes(obj);
+  const postal = attrs.find((a) => String(a && a.key).toUpperCase() === 'POSTAL_ADDRESS');
+  if (postal && postal.value) return parsePostalAddressBlock(postal.value);
+
   const street = attrVal(attrs, ['STREET', 'straße', 'strasse']);
-  const house  = attrVal(attrs, ['HOUSE_NO', 'houseNo', 'houseNumber']);
+  const house  = attrVal(attrs, ['HOUSE_NO', 'houseno', 'housenumber']);
   const zip    = attrVal(attrs, ['ZIP', 'PLZ', 'postalCode']);
   const city   = attrVal(attrs, ['CITY', 'Ort', 'city']);
   const l1 = [street, house].filter(Boolean).join(' ').trim();
   const l2 = [zip, city].filter(Boolean).join(' ').trim();
   return [l1, l2].filter(Boolean).join(', ');
 }
+
 function boolFromString(v) {
   if (v === true) return true;
   if (v === false) return false;
   const s = String(v || '').trim().toLowerCase();
   if (!s) return null;
-  if (['true', 'yes', 'ja', '1'].includes(s)) return true;
-  if (['false', 'no', 'nein', '0'].includes(s)) return false;
+  if (s === 'true' || s === 'yes' || s === 'ja' || s === '1') return true;
+  if (s === 'false' || s === 'no' || s === 'nein' || s === '0') return false;
   return null;
 }
 
-// ---------- Domain Logic ----------
-function combinedStatusFromOccupancy(occEntry) {
-  if (!occEntry || !Array.isArray(occEntry.counters) || !occEntry.counters.length) return 'unknown';
+// ---------- Tarife/Details-Heuristiken ----------
+function extractRates(detail) {
+  const attrs = collectAttributes(detail);
+  const hourly  = attrVal(attrs, ['HOURLY_RATE', 'hourly', 'pro_stunde', 'STUNDENPREIS']);
+  const daymax  = attrVal(attrs, ['DAY_MAX', 'day_max', 'tageshöchstsatz', 'TAGESMAX']);
+  const monthly = attrVal(attrs, ['MONTHLY', 'DAUERSTELLPLATZ', 'MONTHLY_LONG_TERM']);
+  const bits = [];
+  if (hourly) bits.push('Stunde: ' + euro(hourly));
+  if (daymax) bits.push('Tag: ' + euro(daymax));
+  if (monthly) bits.push('Monat: ' + euro(monthly));
+  return bits.join(' · ');
+}
+
+function extractClearance(detail) {
+  const attrs = collectAttributes(detail);
+  const m  = attrVal(attrs, ['CLEARANCE_METERS', 'EINFAHRTSHOEHE_M', 'EINFAHRTSHÖHE_M']);
+  const cm = attrVal(attrs, ['HEIGHT_LIMIT_CM', 'EINFAHRTSHOEHE_CM', 'EINFAHRTSHÖHE_CM']);
+  if (m) return String(m).replace('.', ',') + ' m';
+  if (cm) {
+    const n = Number(cm);
+    if (!isNaN(n)) return (n / 100).toFixed(2).replace('.', ',') + ' m';
+  }
+  return '';
+}
+
+function extractCapacity(detail) {
+  const attrs = collectAttributes(detail);
+  const a = detail && (detail.capacityTotal != null ? detail.capacityTotal : detail.totalCapacity);
+  if (a != null && a !== '') return a;
+  const attrCap = attrVal(attrs, ['CAPACITY_TOTAL', 'TOTAL_CAPACITY']);
+  return attrCap || '';
+}
+
+// Optionales Label-Mapping für Devices
+const DEVICE_LABELS = {
+  BARRIER: 'Schranke',
+  CASH_DESK: 'Kasse',
+  TICKET_MACHINE: 'Ticketautomat',
+  CAMERA: 'Kamera'
+};
+
+// Devices in Features einmischen
+function extractFeatures(detail, devices) {
+  const attrs = collectAttributes(detail);
+
+  const featNames = (detail && Array.isArray(detail.features) ? detail.features : [])
+    .map((f) => f && f.name)
+    .filter(Boolean);
+
+  const deviceNames = (Array.isArray(devices) ? devices : [])
+    .map((d) => {
+      const t = String(d && d.type || '').toUpperCase();
+      return DEVICE_LABELS[t] || d?.name || d?.type || d?.key;
+    })
+    .filter(Boolean);
+
+  const extras = [];
+  if (attrVal(attrs, ['ELEVATOR', 'AUFZUG'])) extras.push('Aufzug');
+  if (attrVal(attrs, ['ROOFED', 'UEBERDACHT', 'ÜBERDACHT'])) extras.push('Überdacht');
+  if (attrVal(attrs, ['RESTROOMS', 'WC'])) extras.push('WCs');
+  if (attrVal(attrs, ['GUIDANCE_SYSTEM', 'LEITSYSTEM'])) extras.push('Leitsystem');
+
+  const all = [].concat(featNames, deviceNames, extras).filter(Boolean);
+  const set = {};
+  for (let i = 0; i < all.length; i++) set[all[i]] = true;
+  return Object.keys(set);
+}
+
+function extractPayments(detail) {
+  const attrs = collectAttributes(detail);
+  const namesSet = {};
+
+  // Aus Features mit type === PAYMENT
+  if (detail && Array.isArray(detail.features)) {
+    for (let i = 0; i < detail.features.length; i++) {
+      const f = detail.features[i];
+      if (!f) continue;
+      if (String(f.type || '').toUpperCase() === 'PAYMENT' && f.name) {
+        namesSet[f.name] = true;
+      }
+    }
+  }
+
+  // Aus Attributes anhand Keys
+  const payKeys = [
+    'PAYPAL', 'PAY_PAL', 'VISA', 'MASTER_CARD', 'MASTERCARD',
+    'AMERICAN_EXPRESS', 'GIRO_CARD', 'CASH', 'DEBIT_CARD',
+    'EC_CARD', 'APPLE_PAY', 'GOOGLE_PAY', 'PARKINGCARD'
+  ];
+  for (let i = 0; i < payKeys.length; i++) {
+    const k = payKeys[i];
+    const v = attrVal(attrs, [k]);
+    if (v) {
+      namesSet[k.replace(/_/g, ' ')] = true;
+    }
+  }
+
+  return Object.keys(namesSet);
+}
+
+// ---------- Belegung (REST /iPCM) ----------
+
+// iPCM liefert je nach System ein Array oder ein einzelnes Objekt.
+// Wir normalisieren auf ein Objekt der gewünschten facilityId.
+function normalizeOccForFacility(res, facId) {
+  if (!res) return null;
+  const fid = String(facId);
+
+  // iPCM liefert teils ein Array auf Top-Level
+  if (Array.isArray(res)) {
+    const match = res.find(x => String(x?.facilityId) === fid);
+    if (match) return match;
+    if (res.length === 1 && res[0]?.counters) return res[0];
+    return null;
+    // (falls du mehrere Einträge pro Facility hast, kannst du hier auch mergen)
+  }
+
+  // Einzelobjekt?
+  if (String(res.facilityId || '') === fid) return res;
+
+  // Container-Varianten abdecken
+  const arr = Array.isArray(res.items) ? res.items
+    : Array.isArray(res.results) ? res.results
+      : Array.isArray(res.content) ? res.content
+        : [];
+  return arr.find(x => String(x?.facilityId) === fid) || null;
+}
+function renderOccupancyTableFromRest(occJson) {
+  const tbody = $('#occTable');
+  const counters = (occJson && Array.isArray(occJson.counters)) ? occJson.counters : [];
+
+  if (!counters.length) {
+    tbody.innerHTML = '<tr><td colspan="6">Keine Zählstellen vorhanden.</td></tr>';
+    return;
+  }
+
+  const rows = counters.map(c => {
+    const keyOrName =
+      c.name ||
+      (c.nativeId && (c.nativeId.value || c.nativeId.id)) ||
+      (c.counterType && Array.isArray(c.counterType.translations) && c.counterType.translations[0]?.value) ||
+      c.key || '';
+
+    const typ =
+      (c.counterType && c.counterType.type) ||
+      (c.type && c.type.type) ||
+      '';
+
+    const rsv = c.counterType?.reservationStatus ? ' · ' + c.counterType.reservationStatus : '';
+    const statusCell = String(c.status || '') + rsv;
+
+    return (
+      '<tr>' +
+      '<td>' + keyOrName + '</td>' +
+      '<td>' + typ + '</td>' +
+      '<td>' + (c.maxPlaces != null ? c.maxPlaces : '') + '</td>' +
+      '<td>' + (c.occupiedPlaces != null ? c.occupiedPlaces : '') + '</td>' +
+      '<td>' + (c.freePlaces != null ? c.freePlaces : '') + '</td>' +
+      '<td>' + statusCell + '</td>' +
+      '</tr>'
+    );
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+function combinedStatusFromRest(occJson) {
+  const counters = (occJson && Array.isArray(occJson.counters)) ? occJson.counters : [];
+  if (!counters.length) return 'unknown';
+
   const rank = { full: 3, tight: 2, free: 1, unknown: 0 };
   let best = 'unknown';
-  for (const c of occEntry.counters) {
-    const s = String(c.status || '').toLowerCase();
+
+  for (let i = 0; i < counters.length; i++) {
+    const s = String(counters[i].status || '').toLowerCase();
     if (rank[s] > rank[best]) best = s;
   }
   if (best !== 'unknown') return best;
 
-  // Fallback: Ratio auf Basis max/free
+  // Fallback über Summierung
   let max = 0, free = 0;
-  for (const c of occEntry.counters) {
-    if (typeof c.maxPlaces === 'number')  max  += c.maxPlaces;
+  for (let i = 0; i < counters.length; i++) {
+    const c = counters[i];
+    if (typeof c.maxPlaces === 'number') max += c.maxPlaces;
     if (typeof c.freePlaces === 'number') free += c.freePlaces;
   }
   if (max <= 0) return 'unknown';
@@ -100,360 +275,242 @@ function combinedStatusFromOccupancy(occEntry) {
   if (ratio <= 0.90) return 'tight';
   return 'full';
 }
-function extractClearance(detail) {
-  const attrs = collectAttributes(detail);
-  const m  = attrVal(attrs, ['CLEARANCE_METERS', 'EINFAHRTSHOEHE_M', 'EINFAHRTSHÖHE_M']);
-  const cm = attrVal(attrs, ['HEIGHT_LIMIT_CM', 'EINFAHRTSHOEHE_CM', 'EINFAHRTSHÖHE_CM']);
-  if (m)  return `${String(m).replace('.', ',')} m`;
-  if (cm) return `${(Number(cm) / 100).toFixed(2).replace('.', ',')} m`;
-  return '';
-}
-function extractCapacity(detail) {
-  const attrs = collectAttributes(detail);
-  const val = (detail?.capacityTotal ?? detail?.totalCapacity ?? attrVal(attrs, ['CAPACITY_TOTAL', 'TOTAL_CAPACITY']));
-  return val || '';
-}
-function extractRates(detail) {
-  const attrs   = collectAttributes(detail);
-  const hourly  = attrVal(attrs, ['HOURLY_RATE', 'hourly', 'pro_stunde', 'STUNDENPREIS']);
-  const daymax  = attrVal(attrs, ['DAY_MAX', 'day_max', 'tageshöchstsatz', 'TAGESMAX', 'TAGESHOECHSTSATZ', 'TAGESHÖCHSTSATZ']);
-  const monthly = attrVal(attrs, ['MONTHLY', 'DAUERSTELLPLATZ', 'MONTHLY_LONG_TERM']);
-  const bits = [];
-  if (hourly)  bits.push(`Stunde: ${euro(hourly)}`);
-  if (daymax)  bits.push(`Tag: ${euro(daymax)}`);
-  if (monthly) bits.push(`Monat: ${euro(monthly)}`);
-  return bits.join(' · ');
-}
-function extractFeatures(detail) {
-  const attrs = collectAttributes(detail);
-  const features = (detail?.features || []).map(f => f?.name).filter(Boolean);
-  const extras = [];
-  if (attrVal(attrs, ['ELEVATOR', 'AUFZUG']))              extras.push('Aufzug');
-  if (attrVal(attrs, ['ROOFED', 'UEBERDACHT', 'ÜBERDACHT'])) extras.push('Überdacht');
-  if (attrVal(attrs, ['RESTROOMS', 'WC']))                 extras.push('WCs');
-  if (attrVal(attrs, ['GUIDANCE_SYSTEM', 'LEITSYSTEM']))   extras.push('Leitsystem');
-  return Array.from(new Set([...features, ...extras]));
-}
-function extractPayments(detail) {
-  const attrs = collectAttributes(detail);
-  const names = new Set();
-  for (const f of (detail?.features || [])) {
-    if (String(f?.type).toUpperCase() === 'PAYMENT' && f?.name) names.add(f.name);
+
+// Summenzeile „von / belegt / frei / (reserviert max / ohne Res. max)“
+function summarizeCounters(counters = []) {
+  let max = 0, occ = 0, free = 0, resOnlyMax = 0, noResMax = 0;
+  for (const c of counters) {
+    const m = Number(c.maxPlaces || 0);
+    const o = Number(c.occupiedPlaces || 0);
+    const f = Number(c.freePlaces || 0);
+    max  += m;
+    occ  += o;
+    free += f;
+    const r = c.counterType && c.counterType.reservationStatus;
+    if (r === 'ONLY_RESERVATIONS') resOnlyMax += m;
+    if (r === 'NO_RESERVATIONS')   noResMax  += m;
   }
-  const payKeys = ['PAY_PAL', 'PAYPAL', 'VISA', 'MASTER_CARD', 'MASTERCARD', 'AMERICAN_EXPRESS', 'GIRO_CARD', 'CASH', 'DEBIT_CARD', 'EC_CARD', 'APPLE_PAY', 'GOOGLE_PAY', 'PARKINGCARD'];
-  for (const k of payKeys) {
-    const v = attrVal(attrs, [k]);
-    if (v) names.add(k.replace(/_/g, ' '));
-  }
-  return Array.from(names);
-}
-function coords(detail) {
-  const lat = detail?.lat ?? detail?.latitude;
-  const lng = detail?.lng ?? detail?.longitude;
-  return (lat != null && lng != null) ? `${lat}, ${lng}` : '';
-}
-function countryFromAttrs(detail) {
-  const attrs = collectAttributes(detail);
-  const postal = attrs.find(a => String(a?.key).toUpperCase() === 'POSTAL_ADDRESS')?.value || '';
-  if (/DEU\b/.test(postal)) return 'DE';
-  return attrVal(attrs, ['COUNTRY', 'country']) || '';
-}
-function contactFromDetail(detail) {
-  const attrs = collectAttributes(detail);
-  return attrVal(attrs, ['CONTACT', 'KONTAKT', 'CONTACT_EMAIL', 'CONTACT_PHONE']) || '–';
+  return { max, occ, free, resOnlyMax, noResMax };
 }
 
 // ---------- API ----------
 async function apiJSON(url) {
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
   const ct = (r.headers.get('content-type') || '').toLowerCase();
-  return ct.includes('json') ? r.json() : r.text();
+  return ct.indexOf('json') !== -1 ? r.json() : r.text();
 }
+
+// iPAW Services:
 const loadFacilityDefinitions = () => apiJSON('/api/facility-definitions');
 const loadFacilities         = () => apiJSON('/api/facilities');
-const loadFacility           = (id) => apiJSON(`/api/facilities/${encodeURIComponent(id)}`);
-const loadAllOccupancies     = () => apiJSON('/api/occupancies'); // komplett, Client filtert
-const loadFacilityDevices    = (id) => apiJSON(`/api/devices/facility/${encodeURIComponent(id)}`);
+const loadFacility           = (id) => apiJSON('/api/facilities/' + encodeURIComponent(id));
+// iPCM REST:
+const loadOccupanciesForFacility = (id) => apiJSON('/api/occupancies/facility/' + encodeURIComponent(id));
+const loadDevicesForFacility     = (id) => apiJSON('/api/devices/facility/' + encodeURIComponent(id));
+// Charging (unverändert):
 const loadChargingStations   = () => apiJSON('/api/charging-stations');
-const loadChargingStation    = (id) => apiJSON(`/api/charging-stations/${encodeURIComponent(id)}`);
+const loadChargingStation    = (id) => apiJSON('/api/charging-stations/' + encodeURIComponent(id));
 
 // ---------- State ----------
 let FAC_ALL = [];
 let FAC_FILTERED = [];
-let CS_ALL = [];
-let OCC_ALL = null;
 let CURRENT_FAC = null;
+let CS_ALL = [];
 
-// ---------- Occupancies ----------
-async function ensureOccupanciesLoaded() {
-  if (OCC_ALL) return OCC_ALL;
-  const data = await loadAllOccupancies();
-  OCC_ALL = pickArray(data);
-  return OCC_ALL;
-}
-function occForFacility(id) {
-  const fid = String(id);
-  const arr = Array.isArray(OCC_ALL) ? OCC_ALL.filter(x => String(x?.facilityId) === fid) : [];
-  return arr;
-}
-
-// ---------- Rendering Helpers ----------
-function chips(container, items) {
-  if (!container) return;
-  container.innerHTML = (items || []).filter(Boolean).map(x => `<span class="tag">${String(x)}</span>`).join('') || '–';
-}
-
-// ---------- Liste Parkhäuser ----------
+// ---------- Rendering: Liste ----------
 function renderFacilitiesTable(rows) {
   const tbody = $('#facilitiesTbody');
-  if (!tbody) return;
-  tbody.innerHTML = rows.map(f => `
-    <tr>
-      <td><a class="id-link" href="#" data-fid="${String(f.id)}">${String(f.id)}</a></td>
-      <td>${String(f.name || '')}</td>
-      <td class="muted">${String(f.definitionId ?? '')}</td>
-    </tr>
-  `).join('');
+  const out = [];
 
-  $$('#facilitiesTbody .id-link').forEach(a => {
-    a.addEventListener('click', async (e) => {
+  for (let i = 0; i < rows.length; i++) {
+    const f = rows[i] || {};
+    const id = f.id != null ? String(f.id) : '';
+    const name = f.name || '';
+    const def = f.definitionId != null ? String(f.definitionId) : '';
+    out.push(
+      '<tr>' +
+      '<td><a class="id-link" href="#" data-fid="' + id + '">' + id + '</a></td>' +
+      '<td>' + name + '</td>' +
+      '<td class="muted">' + def + '</td>' +
+      '</tr>'
+    );
+  }
+  tbody.innerHTML = out.join('');
+
+  $$('#facilitiesTbody .id-link').forEach((a) => {
+    a.addEventListener('click', function (e) {
       e.preventDefault();
-      const id = a.getAttribute('data-fid');
-      await showFacilityDetails(id);
+      const id = this.getAttribute('data-fid');
+      if (id) showFacilityDetails(id);
     });
   });
 
-  setText($('#countBadge'), `${rows.length} Treffer`);
+  $('#countBadge').textContent = rows.length + ' Treffer';
 }
+
 function filterFacilities() {
-  const needle = ($('#filterText')?.value || '').toLowerCase();
-  const defSel = $('#definitionId')?.value || '';
-  FAC_FILTERED = FAC_ALL.filter(f => {
-    if (defSel && String(f.definitionId) !== defSel) return false;
+  const needle = ( $('#filterText').value || '' ).toLowerCase();
+  const defSel = $('#definitionId').value || '';
+
+  FAC_FILTERED = FAC_ALL.filter((f) => {
+    if (defSel && String(f.definitionId) !== String(defSel)) return false;
     if (!needle) return true;
     const s = toLowerJsonStr({ id: f.id, name: f.name, city: f.city, def: f.definitionId });
-    return s.includes(needle);
+    return s.indexOf(needle) !== -1;
   });
+
   renderFacilitiesTable(FAC_FILTERED);
 }
 
-// ---------- Tabs ----------
-function setTab(tab) {
-  const views = {
-    overview: $('#viewOverview'),
-    occ:      $('#viewOccupancy'),
-    dev:      $('#viewDevices'),
-    price:    $('#viewPrices'),
-    raw:      $('#viewRaw'),
-  };
-  Object.entries(views).forEach(([k, el]) => { if (el) el.style.display = (k === tab) ? '' : 'none'; });
+// ---------- Rendering: Parkhaus Detail ----------
+function setOverviewTab(tab) {
+  $('#viewOverview').style.display  = (tab === 'overview') ? '' : 'none';
+  $('#viewOccupancy').style.display = (tab === 'occ')      ? '' : 'none';
+  $('#viewRaw').style.display       = (tab === 'raw')      ? '' : 'none';
 }
-function bindTabs() {
-  $('#tabOverview')  && $('#tabOverview').addEventListener('click', () => setTab('overview'));
-  $('#tabOccupancy') && $('#tabOccupancy').addEventListener('click', () => setTab('occ'));
-  $('#tabDevices')   && $('#tabDevices').addEventListener('click', () => setTab('dev'));
-  $('#tabPrices')    && $('#tabPrices').addEventListener('click', () => setTab('price'));
-  $('#tabRaw')       && $('#tabRaw').addEventListener('click', () => setTab('raw'));
-  setTab('overview');
-}
+$('#tabOverview').addEventListener('click', function () { setOverviewTab('overview'); });
+$('#tabOccupancy').addEventListener('click', function () { setOverviewTab('occ'); });
+$('#tabRaw').addEventListener('click', function () { setOverviewTab('raw'); });
+setOverviewTab('overview');
 
-// ---------- Detail Parkhaus ----------
-function renderFacilityOverview(detail, occEntryArr) {
-  const occEntry = (Array.isArray(occEntryArr) && occEntryArr.length) ? occEntryArr[0] : null;
-
-  setText($('#facName'), detail?.name || '–');
-  setText($('#facAddress'), extractAddressFromAttributes(detail) || '–');
-  setText($('#facClearance'), extractClearance(detail) || '–');
-  setText($('#facCapacity'), extractCapacity(detail) || '–');
-  setText($('#facRates'), extractRates(detail) || '–');
-
-  const combined = occEntry ? combinedStatusFromOccupancy(occEntry) : 'unknown';
-  setText($('#facStatus'), combined || 'unknown');
-
-  chips($('#facFeatures'), extractFeatures(detail));
-  chips($('#facPayments'), extractPayments(detail));
-}
-function renderFacilityRaw(detail) {
-  setText($('#facRaw'), safeJson(detail));
-}
-function renderOccupancyTable(occEntryArr) {
-  const tbody = $('#occTable');
-  if (!tbody) return;
-  const rows = [];
-  const occEntry = (Array.isArray(occEntryArr) && occEntryArr.length) ? occEntryArr[0] : null;
-
-  if (occEntry && Array.isArray(occEntry.counters)) {
-    for (const c of occEntry.counters) {
-      rows.push(`
-        <tr>
-          <td>${String(c.name || c.key || '')}</td>
-          <td>${String(c.type?.type || '')}</td>
-          <td>${c.maxPlaces ?? ''}</td>
-          <td>${c.occupiedPlaces ?? ''}</td>
-          <td>${c.freePlaces ?? ''}</td>
-          <td>${String(c.status || '')}</td>
-        </tr>
-      `);
-    }
-  }
-  tbody.innerHTML = rows.join('') || `<tr><td colspan="6">Keine Zählstellen vorhanden.</td></tr>`;
-}
-function renderDevicesTable(list) {
-  const tbody = $('#devicesTbody');
-  if (!tbody) return;
-  const arr = pickArray(list);
-  const rows = arr.map(d => `
-    <tr>
-      <td>${String(d.name || d.label || '–')}</td>
-      <td>${String(d.type || d.deviceType || '–')}</td>
-      <td>${String(d.zone || d.area || '–')}</td>
-      <td>${String(d.status || d.state || '–')}</td>
-      <td class="muted">${String(d.id || d.deviceId || '')}</td>
-    </tr>
-  `);
-  tbody.innerHTML = rows.join('') || `<tr><td colspan="5">Keine Geräte gefunden.</td></tr>`;
-}
-function renderFeatureTags(detail) {
-  chips($('#facFeatTags'), (detail?.features || []).map(f => f?.name).filter(Boolean));
-}
-function renderAttributesTable(detail) {
-  const attrs = collectAttributes(detail);
-  const tbody = $('#facAttrTbody');
-  if (!tbody) return;
-  if (!attrs.length) {
-    tbody.innerHTML = `<tr><td colspan="2">–</td></tr>`;
+function chips(container, items) {
+  const arr = (items || []).filter(Boolean);
+  if (!arr.length) {
+    container.innerHTML = '–';
     return;
   }
-  tbody.innerHTML = attrs.map(a => `
-    <tr>
-      <td>${String(a?.key ?? '')}</td>
-      <td>${String(a?.value ?? '')}</td>
-    </tr>
-  `).join('');
-}
-function renderPrices(detail) {
-  // Parken aus Attributen
-  const attrs = collectAttributes(detail);
-  const hourly  = attrVal(attrs, ['HOURLY_RATE', 'hourly', 'pro_stunde', 'STUNDENPREIS']);
-  const dayMax  = attrVal(attrs, ['DAY_MAX', 'day_max', 'tageshöchstsatz', 'TAGESMAX', 'TAGESHOECHSTSATZ', 'TAGESHÖCHSTSATZ']);
-  const monthly = attrVal(attrs, ['MONTHLY', 'DAUERSTELLPLATZ', 'MONTHLY_LONG_TERM']);
-
-  setHTML($('#priceParking'),
-    [hourly && `Stunde: ${euro(hourly)}`, dayMax && `Tag: ${euro(dayMax)}`, monthly && `Monat: ${euro(monthly)}`]
-      .filter(Boolean).join(' · ') || '–'
-  );
-  setText($('#priceTimeBased'),
-    [hourly && `pro Stunde ${euro(hourly)}`, dayMax && `Tageshöchstsatz ${euro(dayMax)}`]
-      .filter(Boolean).join(' | ') || '–'
-  );
-  setText($('#priceLongTerm'), monthly ? `Dauerstellplatz: ${euro(monthly)}` : '–');
-
-  // Optionale Ladepreise, falls im selben Objekt gepflegt
-  const chargeH   = attrVal(attrs, ['CHARGING_HOURLY', 'EV_HOURLY', 'LADEN_STUNDE']);
-  const chargeKwh = attrVal(attrs, ['CHARGING_PER_KWH', 'EV_PER_KWH', 'LADEN_KWH']);
-  setHTML($('#priceCharging'),
-    [chargeH && `Zeit: ${euro(chargeH)}`, chargeKwh && `kWh: ${euro(chargeKwh)}`]
-      .filter(Boolean).join(' · ') || '–'
-  );
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    out.push('<span class="tag">' + String(arr[i]) + '</span>');
+  }
+  container.innerHTML = out.join('');
 }
 
 async function showFacilityDetails(id) {
   try {
-    const [detail] = await Promise.all([
-      loadFacility(id),
-      ensureOccupanciesLoaded()
-    ]);
-    const occArr = occForFacility(id);
+    // 1) Stammdaten (iPAW)
+    const detail = await loadFacility(id);
+
+    // 2) REST: Occupancies + Devices nur für diese Facility
+    const occPromise = loadOccupanciesForFacility(id).catch(() => null);
+    const devPromise = loadDevicesForFacility(id).catch(() => null);
+
+    const occRaw     = await occPromise;
+
+// Robust: iPCM liefert teils ein Array – sicher auf das Objekt der Facility mappen
+    let occJson = normalizeOccForFacility(occRaw, id);
+    if (!occJson && Array.isArray(occRaw)) {
+      occJson = occRaw.find(x => String(x?.facilityId) === String(id)) || null;
+    }
+
+    const devicesRaw = await devPromise;
+
 
     CURRENT_FAC = detail;
 
-    // Header/Meta
-    setText($('#facHdrId'), `ID ${String(id)}`);
-    setText($('#facGeo'), coords(detail) || '–');
-    setText($('#facCountry'), countryFromAttrs(detail) || '–');
-    setText($('#facContact'), contactFromDetail(detail) || '–');
+    // Übersicht
+    $('#facName').textContent      = (detail && detail.name) || '–';
+    $('#facAddress').textContent   = extractAddressFromAttributes(detail) || '–';
+    $('#facClearance').textContent = extractClearance(detail) || '–';
+    $('#facCapacity').textContent  = extractCapacity(detail) || '–';
+    $('#facRates').textContent     = extractRates(detail) || '–';
 
-    // Overview
-    renderFacilityOverview(detail, occArr);
-    renderFacilityRaw(detail);
+    const devices = pickArray(devicesRaw);
+    chips($('#facFeatures'), extractFeatures(detail, devices));
+    chips($('#facPayments'), extractPayments(detail));
 
-    // Occupancy
-    renderOccupancyTable(occArr);
-    const occEntry = (occArr && occArr.length) ? occArr[0] : null;
-    setText($('#occFacId'), String(id));
-    setText($('#occCombined'), occEntry ? combinedStatusFromOccupancy(occEntry) : 'unknown');
-    setText($('#occUpdated'), occEntry?.valuesFrom ? String(occEntry.valuesFrom) : '–');
+    // Belegung
+    // Belegung: Header + Tabelle rendern + Tab sichtbar machen
+    $('#occFacId').textContent = String(id);
 
-    // Devices
-    try {
-      const dev = await loadFacilityDevices(id);
-      renderDevicesTable(dev);
-    } catch (e) {
-      setHTML($('#devicesTbody'), `<tr><td colspan="5">Geräte konnten nicht geladen werden: ${String(e?.message || e)}</td></tr>`);
-    }
+    const combined = occJson ? combinedStatusFromRest(occJson) : 'unknown';
+    const sum = summarizeCounters(occJson ? occJson.counters : []);
+    $('#occCombined').textContent =
+      `${combined} · ${sum.occ}/${sum.max} belegt · ${sum.free} frei` +
+      (sum.resOnlyMax ? ` · reserviert (max): ${sum.resOnlyMax}` : '') +
+      (sum.noResMax  ? ` · ohne Reservierung (max): ${sum.noResMax}` : '');
 
-    // Features & Attributes
-    renderFeatureTags(detail);
-    renderAttributesTable(detail);
+    renderOccupancyTableFromRest(occJson || { counters: [] });
 
-    // Prices
-    renderPrices(detail);
+// Für die Fehlersuche erstmal den Tab „Belegung“ aktivieren
+    if (occJson?.counters?.length > 0) setOverviewTab('occ');
 
-    setTab('overview');
+    // Rohdaten (Facility)
+    $('#facRaw').textContent = safeJson(detail);
+
+    setOverviewTab('overview');
   } catch (e) {
     CURRENT_FAC = null;
-    setText($('#facName'), 'Fehler');
-    setText($('#facRaw'), safeJson({ error: String(e?.message || e) }));
-    setHTML($('#occTable'), `<tr><td colspan="6">–</td></tr>`);
+    $('#facName').textContent = 'Fehler';
+    $('#facRaw').textContent  = safeJson({ error: String(e && e.message ? e.message : e) });
+    $('#occTable').innerHTML  = '<tr><td colspan="6">–</td></tr>';
   }
 }
 
 // ---------- E-Ladestationen ----------
 function renderChargingList(list) {
   const tbody = $('#chargeTbody');
-  if (!tbody) return;
-  tbody.innerHTML = list.map(x => `
-    <tr>
-      <td><a class="id-link" href="#" data-csid="${String(x.id)}">${String(x.id)}</a></td>
-      <td>${String(x.name || x.label || 'Ladestation')}</td>
-    </tr>
-  `).join('');
-  $$('#chargeTbody .id-link').forEach(a => {
-    a.addEventListener('click', async (e) => {
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const x = list[i] || {};
+    const id = x.id != null ? String(x.id) : '';
+    const nm = x.name || x.label || 'Ladestation';
+    out.push(
+      '<tr>' +
+      '<td><a class="id-link" href="#" data-csid="' + id + '">' + id + '</a></td>' +
+      '<td>' + nm + '</td>' +
+      '</tr>'
+    );
+  }
+  tbody.innerHTML = out.join('');
+
+  $$('#chargeTbody .id-link').forEach((a) => {
+    a.addEventListener('click', async function (e) {
       e.preventDefault();
-      const id = a.getAttribute('data-csid');
-      const d = await loadChargingStation(id);
-      renderChargingDetail(d);
+      const id = this.getAttribute('data-csid');
+      try {
+        const d = await loadChargingStation(id);
+        renderChargingDetail(d);
+      } catch (err) {
+        $('#csRaw').textContent = safeJson({ error: String(err && err.message ? err.message : err) });
+      }
     });
   });
 }
+
 function getAttr(attrs, key) {
   const K = String(key).toUpperCase();
-  const hit = (attrs || []).find(a => String(a?.key).toUpperCase() === K);
-  return hit?.value ?? '';
+  const arr = attrs || [];
+  for (let i = 0; i < arr.length; i++) {
+    const a = arr[i];
+    if (a && String(a.key).toUpperCase() === K) return a.value != null ? a.value : '';
+  }
+  return '';
 }
+
 function renderChargingDetail(detail) {
   const attrs = collectAttributes(detail);
-  setText($('#csName'), detail?.name || detail?.label || '–');
-  setText($('#csAddress'), extractAddressFromAttributes(detail) || detail?.addressLine || '–');
+
+  $('#csName').textContent    = (detail && (detail.name || detail.label)) || '–';
+  $('#csAddress').textContent = extractAddressFromAttributes(detail) || (detail && detail.addressLine) || '–';
 
   const renewable = boolFromString(getAttr(attrs, 'RENEWABLE_ENERGY'));
-  setText($('#csRenewable'), renewable === null ? '–' : (renewable ? 'Ja' : 'Nein'));
+  $('#csRenewable').textContent = renewable === null ? '–' : (renewable ? 'Ja' : 'Nein');
 
   const dyn = boolFromString(getAttr(attrs, 'DYNAMIC_POWER_LEVEL'));
-  setText($('#csDynPower'), dyn === null ? '–' : (dyn ? 'Ja' : 'Nein'));
+  $('#csDynPower').textContent = dyn === null ? '–' : (dyn ? 'Ja' : 'Nein');
 
   const auth = splitLines(getAttr(attrs, 'AUTHENTICATION_MODES'));
   const pay  = splitLines(getAttr(attrs, 'PAYMENT_OPTIONS'));
   chips($('#csAuth'), auth);
-  chips($('#csPay'), pay);
+  chips($('#csPay'),  pay);
 
-  setText($('#csAccess'), getAttr(attrs, 'ACCESSIBILITY') || '–');
-  setText($('#csCalLaw'), getAttr(attrs, 'CALIBRATION_LAW_DATA_AVAILABILITY') || '–');
-  setText($('#csDev'), getAttr(attrs, 'DEVICE_ID') || '–');
+  $('#csAccess').textContent = getAttr(attrs, 'ACCESSIBILITY') || '–';
+  $('#csCalLaw').textContent = getAttr(attrs, 'CALIBRATION_LAW_DATA_AVAILABILITY') || '–';
+  $('#csDev').textContent    = getAttr(attrs, 'DEVICE_ID') || '–';
 
-  setText($('#csRaw'), safeJson(detail));
+  $('#csRaw').textContent = safeJson(detail);
 }
 
 // ---------- Boot ----------
@@ -464,42 +521,44 @@ async function reloadFacilities() {
 }
 
 async function boot() {
-  // Tabs binden
-  bindTabs();
-
-  // Definitions → Select
+  // Definitionen ins Select
   try {
-    const defs = await loadFacilityDefinitions().catch(() => []);
+    const defs = await loadFacilityDefinitions().catch(function () { return []; });
     const sel = $('#definitionId');
-    if (sel) {
-      sel.innerHTML = `<option value="">– alle –</option>` + pickArray(defs).map(d => {
-        const id = d?.id ?? d?.definitionId;
-        const name = d?.name || d?.label || `Definition ${id}`;
-        return `<option value="${String(id)}">${String(id)} – ${String(name)}</option>`;
-      }).join('');
+    let options = '<option value="">– alle –</option>';
+    const list = pickArray(defs);
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i] || {};
+      const id = (d.id != null ? d.id : d.definitionId);
+      const name = d.name || d.label || ('Definition ' + id);
+      options += '<option value="' + String(id) + '">' + String(id) + ' – ' + String(name) + '</option>';
     }
-  } catch {}
+    sel.innerHTML = options;
+  } catch (e) {
+    // still ok
+  }
 
-  // Erste Liste
   await reloadFacilities();
 
-  // Events – Liste
-  $('#btnLoadFacilities') && $('#btnLoadFacilities').addEventListener('click', reloadFacilities);
-  $('#filterText')        && $('#filterText').addEventListener('input', filterFacilities);
-  $('#definitionId')      && $('#definitionId').addEventListener('change', filterFacilities);
+  // Events
+  $('#btnLoadFacilities').addEventListener('click', reloadFacilities);
+  $('#filterText').addEventListener('input', filterFacilities);
+  $('#definitionId').addEventListener('change', filterFacilities);
 
   // Charging
-  $('#btnLoadCharging') && $('#btnLoadCharging').addEventListener('click', async () => {
-    const all = await loadChargingStations();
-    CS_ALL = pickArray(all);
-    renderChargingList(CS_ALL);
-    const input = $('#chargeFilter');
-    if (input) {
-      input.addEventListener('input', () => {
-        const q = (input.value || '').toLowerCase();
-        const rows = CS_ALL.filter(x => toLowerJsonStr(x).includes(q));
+  $('#btnLoadCharging').addEventListener('click', async function () {
+    try {
+      const all = await loadChargingStations();
+      CS_ALL = pickArray(all);
+      renderChargingList(CS_ALL);
+
+      $('#chargeFilter').addEventListener('input', function () {
+        const q = ( $('#chargeFilter').value || '' ).toLowerCase();
+        const rows = CS_ALL.filter((x) => toLowerJsonStr(x).indexOf(q) !== -1);
         renderChargingList(rows);
       });
+    } catch (e) {
+      $('#csRaw').textContent = safeJson({ error: String(e && e.message ? e.message : e) });
     }
   });
 }

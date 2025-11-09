@@ -22,14 +22,16 @@
     .ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
     .ghost:hover { border-color:#cbd5e1; }
 
-    .layout { display:grid; grid-template-columns: 380px 1fr 420px; gap:14px; }
+    /* Symmetrisches Layout: linke + rechte Spalte gleich breit */
+    .layout { display:grid; grid-template-columns: 420px 1fr 420px; gap:14px; align-items:start; }
+
     .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
-    .panel h3 { margin:0 0 10px; font-size:15px; }
+    .panel h3 { margin:0 0 10px; font-size:15px; line-height:1.2; }
     .muted { color:var(--muted); font-size:12px; }
 
     .list { max-height:72vh; overflow:auto; border:1px solid var(--line); border-radius:8px; }
     .list table { width:100%; border-collapse: collapse; font-size:13px; }
-    .list th, .list td { border-bottom:1px solid var(--line); padding:8px; text-align:left; }
+    .list th, .list td { border-bottom:1px solid var(--line); padding:8px; text-align:left; vertical-align:top; }
     .list tr:hover { background:#fafafa; }
     .id-link { color:var(--blue); text-decoration:none; }
     .id-link:hover { text-decoration:underline; }
@@ -39,26 +41,22 @@
     .tagrow { display:flex; gap:6px; flex-wrap:wrap; }
     .tag { background:#eef2ff; border:1px solid #dbeafe; border-radius:999px; padding:2px 8px; font-size:12px; }
 
+    /* Olli-Präferenz: Break-Spaces */
     pre { white-space: break-spaces; background:#0b1020; color:#c4f0c4; padding:12px; border-radius:8px; font-size:12px; max-height:34vh; overflow:auto; }
 
     .subtabs { display:flex; gap:8px; margin-bottom:8px; }
     .subtabs button { padding:6px 8px; border-radius:6px; }
-
     .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; }
-    .pill { display:inline-block; background:var(--accent); color:#fff; border-radius:999px; padding:2px 8px; font-size:12px; }
-    .hr { height:1px; background:var(--line); margin:10px 0; }
-    .cards { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-    .card { border:1px solid var(--line); border-radius:8px; padding:8px; }
-    .card h4 { margin:0 0 6px; font-size:13px; }
-    .mini { font-size:12px; color:var(--muted); }
+
+    /* Kleiner Abstand über Tabellen-Titeln */
+    .table-title { margin:8px 0 6px; font-size:13px; color:#111; }
   </style>
 </head>
 <body>
 <header><h1>Goldbeck Parking – Test UI</h1></header>
 <main>
 
-  <!-- Toolbar: Suche + Laden -->
+  <!-- Toolbar -->
   <div class="panel">
     <div class="toolbar">
       <div class="group">
@@ -79,9 +77,7 @@
         <span id="countBadge" class="muted">0 Treffer</span>
       </div>
     </div>
-    <div class="muted">
-      Tipp: In der Liste einen Eintrag anklicken → Details, Ausstattung, Belegung &amp; Preise (nur diese Standort-ID). Rechts separat: E-Ladestationen.
-    </div>
+    <div class="muted">Tipp: In der Liste einen Eintrag anklicken → Details + Belegung (nur diese Standort-ID). Rechts separat: E-Ladestationen.</div>
   </div>
 
   <div class="layout">
@@ -98,18 +94,13 @@
 
     <!-- Mitte: Details zum Parkhaus -->
     <section class="panel">
-      <h3>Details Parkhaus <span id="facHdrId" class="pill" style="display:none;"></span></h3>
-
-      <!-- Subtabs -->
+      <h3>Details Parkhaus</h3>
       <div class="subtabs">
-        <button id="tabOverview"  class="ghost">Übersicht</button>
+        <button id="tabOverview" class="ghost">Übersicht</button>
         <button id="tabOccupancy" class="ghost">Belegung</button>
-        <button id="tabDevices"   class="ghost">Ausstattung</button>
-        <button id="tabPrices"    class="ghost">Preise</button>
-        <button id="tabRaw"       class="ghost">Rohdaten</button>
+        <button id="tabRaw" class="ghost">Rohdaten</button>
       </div>
 
-      <!-- Übersicht -->
       <div id="viewOverview">
         <div class="kv">
           <b>Name</b><div id="facName">–</div>
@@ -117,25 +108,20 @@
           <b>Einfahrtshöhe</b><div id="facClearance">–</div>
           <b>Gesamtplätze</b><div id="facCapacity">–</div>
           <b>Belegung</b><div id="facStatus">–</div>
+          <b>Tarife</b><div id="facRates">–</div>
           <b>Features</b><div id="facFeatures" class="tagrow"></div>
           <b>Zahlung</b><div id="facPayments" class="tagrow"></div>
         </div>
-        <div class="hr"></div>
-        <div class="grid3">
-          <div><span class="mini">Land</span><div id="facCountry">–</div></div>
-          <div><span class="mini">Koordinaten</span><div id="facGeo">–</div></div>
-          <div><span class="mini">Verantwortlich</span><div id="facContact">–</div></div> <!-- TODO app.js -->
-        </div>
       </div>
 
-      <!-- Belegung -->
       <div id="viewOccupancy" style="display:none;">
         <div class="kv">
           <b>Standort-ID</b><div id="occFacId">–</div>
           <b>Kombinierter Status</b><div id="occCombined">–</div>
-          <b>Letzte Aktualisierung</b><div id="occUpdated">–</div>
         </div>
-        <div class="list" style="margin-top:8px;">
+
+        <div class="table-title">Zählstellen</div>
+        <div class="list">
           <table>
             <thead>
             <tr>
@@ -152,70 +138,16 @@
         </div>
       </div>
 
-      <!-- Ausstattung / Devices -->
-      <div id="viewDevices" style="display:none;">
-        <div class="list">
-          <table>
-            <thead>
-            <tr>
-              <th>Gerät</th>
-              <th>Typ</th>
-              <th>Zone</th>
-              <th>Status</th>
-              <th class="muted">ID</th>
-            </tr>
-            </thead>
-            <tbody id="devicesTbody"></tbody> <!-- TODO app.js -->
-          </table>
-        </div>
-
-        <h4 style="margin-top:10px;">Features (aus Facility)</h4>
-        <div class="tagrow" id="facFeatTags"></div> <!-- TODO app.js -->
-
-        <h4 style="margin-top:10px;">Attribute</h4>
-        <div class="list">
-          <table>
-            <thead><tr><th>Key</th><th>Wert</th></tr></thead>
-            <tbody id="facAttrTbody"></tbody> <!-- TODO app.js -->
-          </table>
-        </div>
-      </div>
-
-      <!-- Preise -->
-      <div id="viewPrices" style="display:none;">
-        <div class="cards">
-          <div class="card">
-            <h4>Tarife Parken</h4>
-            <div id="priceParking">–</div> <!-- TODO app.js: aus Attributes/Features ableiten -->
-          </div>
-          <div class="card">
-            <h4>Tarife Laden</h4>
-            <div id="priceCharging">–</div> <!-- TODO app.js: falls am Standort ableitbar -->
-          </div>
-        </div>
-        <div class="hr"></div>
-        <div class="grid2">
-          <div>
-            <span class="mini">Zeitbasierte Preise</span>
-            <div id="priceTimeBased">–</div> <!-- TODO app.js -->
-          </div>
-          <div>
-            <span class="mini">Langzeit / Vertrag</span>
-            <div id="priceLongTerm">–</div> <!-- TODO app.js -->
-          </div>
-        </div>
-      </div>
-
-      <!-- Rohdaten -->
       <div id="viewRaw" style="display:none;">
         <pre id="facRaw">{ }</pre>
       </div>
     </section>
 
-    <!-- Rechte Spalte: E-Lade -->
+    <!-- Rechte Spalte: E-Ladestationen (symmetrisch zur linken Liste) -->
     <aside class="panel">
-      <h3>E-Ladestationen</h3>
-      <div class="grid2">
+      <h3>E-Ladestationen (Liste + Details)</h3>
+
+      <div class="grid2" style="margin-bottom:8px;">
         <div class="group">
           <label class="dark" for="chargeFilter">Filter</label>
           <input id="chargeFilter" placeholder="z. B. Stadt, Name ..." />
@@ -225,15 +157,16 @@
           <button id="btnLoadCharging" class="ghost">Ladestationen laden</button>
         </div>
       </div>
-      <div class="list" style="margin-top:8px;">
+
+      <div class="list" style="margin-bottom:12px;">
         <table>
           <thead><tr><th>ID</th><th>Name</th></tr></thead>
           <tbody id="chargeTbody"></tbody>
         </table>
       </div>
 
-      <h3 style="margin-top:12px;">Details Ladestation</h3>
-      <div class="kv">
+      <h3 style="margin:0 0 8px;">Details Ladestation</h3>
+      <div class="kv" style="margin-bottom:8px;">
         <b>Name</b><div id="csName">–</div>
         <b>Adresse</b><div id="csAddress">–</div>
         <b>Erneuerbare</b><div id="csRenewable">–</div>
@@ -244,7 +177,8 @@
         <b>Eichrecht</b><div id="csCalLaw">–</div>
         <b>Geräte-ID</b><div id="csDev">–</div>
       </div>
-      <h4>Rohdaten</h4>
+
+      <h4 style="margin:0 0 6px;">Rohdaten</h4>
       <pre id="csRaw">{ }</pre>
     </aside>
   </div>
