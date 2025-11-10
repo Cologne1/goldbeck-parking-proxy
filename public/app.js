@@ -61,6 +61,7 @@ function parsePostalAddressBlock(block) {
 
 function extractAddressFromAttributes(obj) {
   const attrs = collectAttributes(obj);
+  console.log(attrs)
   const postal = attrs.find((a) => String(a && a.key).toUpperCase() === 'POSTAL_ADDRESS');
   if (postal && postal.value) return parsePostalAddressBlock(postal.value);
 
@@ -135,7 +136,7 @@ function extractFeatures(detail, devices) {
   const deviceNames = (Array.isArray(devices) ? devices : [])
     .map((d) => {
       const t = String(d && d.type || '').toUpperCase();
-      return DEVICE_LABELS[t] || d?.name || d?.type || d?.key;
+      return d?.category?.names[0].value;
     })
     .filter(Boolean);
 
