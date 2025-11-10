@@ -399,14 +399,12 @@ function renderFacilitiesTable(rows) {
 }
 
 function filterFacilities() {
-  const needle = ( $('#filterText').value || '' ).toLowerCase();
-  const defSel = $('#definitionId').value || '';
+  const needle = ($('#filterText').value || '').toLowerCase();
 
   FAC_FILTERED = FAC_ALL.filter((f) => {
     // harte Schranke: nur Typ 14
     if (!ALLOWED_FAC_DEFS.has(String(f?.definitionId))) return false;
 
-    if (defSel && String(f.definitionId) !== String(defSel)) return false;
     if (!needle) return true;
     const s = toLowerJsonStr({ id: f.id, name: f.name, city: f.city, def: f.definitionId });
     return s.indexOf(needle) !== -1;
@@ -414,14 +412,7 @@ function filterFacilities() {
 
   renderFacilitiesTable(FAC_FILTERED);
 }
-// ---------- Rendering: Parkhaus Detail ----------
-function setOverviewTab(tab) {
-  $('#viewOverview').style.display  = (tab === 'overview') ? '' : 'none';
-  $('#viewRaw').style.display       = (tab === 'raw')      ? '' : 'none';
-}
-$('#tabOverview').addEventListener('click', function () { setOverviewTab('overview'); });
-$('#tabRaw').addEventListener('click', function () { setOverviewTab('raw'); });
-setOverviewTab('overview');
+
 
 function chips(container, items) {
   const arr = (items || []).filter(Boolean);
@@ -510,8 +501,6 @@ async function showFacilityDetails(id) {
     // --- Rohdaten (Facility) ---
     $('#facRaw').textContent = safeJson(detail);
 
-    // immer Übersicht zeigen
-    setOverviewTab('overview');
   } catch (e) {
     $('#facName').textContent = 'Fehler';
     $('#facRaw').textContent  = safeJson({ error: String(e && e.message ? e.message : e) });
@@ -621,7 +610,10 @@ async function loadChargingAndWire() {
 }
 // Apply all charging filters (text, payment, connector, power)
 function applyChargingFilters() {
-  const q = ($('#chargeFilter').value || '').toLowerCase();
+  const q = (
+    ($('#filterText')?.value || '') ||  // globaler Volltext
+    ($('#chargeFilter')?.value || '')   // (optional) lokaler Right-Panel-Filter
+  ).toLowerCase();
 
   const wantDirect   = $('#csPayDirect')?.checked || false;
   const wantContract = $('#csPayContract')?.checked || false;
@@ -804,36 +796,27 @@ function formatOccFromTotalRow(totalRow) {
   return parts.join(' · ');
 }
 function applyTopFilters() {
-  const m = ($('#modeSelect')?.value || 'parkhaus');
-  if (m === 'eladen') {
-    // rechts: E-Ladestationen filtern
-    applyChargingFilters();
-  } else {
-    // links: Parkhäuser filtern (wir nutzen deinen Volltext-/Definition-Filter)
-    filterFacilities();
-  }
+  filterFacilities();
+  applyChargingFilters();
 }
 async function boot() {
-  try {
-    const defs = await loadFacilityDefinitions().catch(function () { return []; });
-    const sel = $('#definitionId');
-    let options = '<option value="">– alle –</option>';
-    const list = pickArray(defs);
-    for (let i = 0; i < list.length; i++) {
-      const d = list[i] || {};
-      const id = (d.id != null ? d.id : d.definitionId);
-      const name = d.name || d.label || ('Definition ' + id);
-      options += '<option value="' + String(id) + '">' + String(id) + ' – ' + String(name) + '</option>';
-    }
-    sel.innerHTML = options;
-  } catch (e) {}
+
 
   await reloadFacilities();
+  const ft = document.getElementById('filterText');
+  if (ft) {
+    ft.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyTopFilters(); // triggert für Parkhaus -> filterFacilities()
+      }
+    });
+  }
 
   // Events Parkhäuser
-  $('#btnLoadFacilities').addEventListener('click', reloadFacilities);
+
   $('#filterText').addEventListener('input', filterFacilities);
-  $('#definitionId').addEventListener('change', filterFacilities);
+
 
   // Mode-Schalter
   $('#modeSelect').addEventListener('change', () => {

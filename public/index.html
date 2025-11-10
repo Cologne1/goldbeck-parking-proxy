@@ -14,7 +14,7 @@
 
     .toolbar { display:grid; grid-template-columns: 2fr 1fr 1fr auto; gap:10px; align-items:end; margin-bottom:12px; }
     .group { display:flex; flex-direction:column; gap:6px; }
-    label { font-size:12px; color:#e5e7eb; }
+    label { font-size:12px; color:#e5e7eb; line-height: 20px}
     .group label.dark { color:#374151; }
     input, select, button { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; }
     button { background:var(--blue); color:#fff; border:none; cursor:pointer; }
@@ -47,13 +47,15 @@
     .subtabs { display:flex; gap:8px; margin-bottom:8px; }
     .subtabs button { padding:6px 8px; border-radius:6px; }
     .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-
+    #filtersPanel { margin:8px 0 14px; }
     /* Kleiner Abstand über Tabellen-Titeln */
     .table-title { margin:8px 0 6px; font-size:13px; color:#111; }
     .filterbar { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:end; margin-bottom:10px; }
     .filters-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-    #filtersPanel h4 { margin:0 0 6px; font-size:14px; }
+    #filtersPanel h4 { margin:6px 0 6px; font-size:14px; }
     #filtersPanel label { font-size:13px; color:var(--ink); }
+    .toolbar { display:grid; grid-template-columns: 2fr auto; gap:10px; align-items:end; margin-bottom:12px; }
+
   </style>
 </head>
 <body>
@@ -69,7 +71,7 @@
           <option value="eladen">Ladestation</option>
         </select>
       </div>
-      <div class="group" style="align-self:end;">
+      <div class="group" style="align-self:end;flex-direction: row;">
         <button id="btnApplyFilters" class="ghost">Filter anwenden</button>
         <button id="btnResetFilters" class="ghost" style="margin-left:6px;">Zurücksetzen</button>
       </div>
@@ -79,32 +81,32 @@
     <div id="pfContainer" class="filters-grid">
       <div>
         <h4>Filter Parkobjekte:</h4>
-        <label><input type="checkbox" id="pf-height" /> Höhenbegrenzung</label><br/>
-        <label><input type="checkbox" id="pf-surveillance" /> Überwacht</label><br/>
-        <label><input type="checkbox" id="pf-roofed" /> Überdacht</label><br/>
+        <label><input type="checkbox" id="pf-height" /> Höhenbegrenzung</label>
+        <label><input type="checkbox" id="pf-surveillance" /> Überwacht</label>
+        <label><input type="checkbox" id="pf-roofed" /> Überdacht</label>
         <label><input type="checkbox" id="pf-elevator" /> Aufzug</label><br/>
-        <label><input type="checkbox" id="pf-accessible" /> Barrierefrei</label><br/>
-        <label><input type="checkbox" id="pf-bike" /> Fahrradstellplatz</label><br/>
-        <label><input type="checkbox" id="pf-family" /> Familienparkplatz</label><br/>
+        <label><input type="checkbox" id="pf-accessible" /> Barrierefrei</label>
+        <label><input type="checkbox" id="pf-bike" /> Fahrradstellplatz</label>
+        <label><input type="checkbox" id="pf-family" /> Familienparkplatz</label>
         <label><input type="checkbox" id="pf-women" /> Frauenparkplatz</label><br/>
-        <label><input type="checkbox" id="pf-payment" /> Zahlungsmittel</label><br/>
-        <label><input type="checkbox" id="pf-longterm" /> Dauerparken</label><br/>
-        <label><input type="checkbox" id="pf-payperuse" /> Pay-per-Use</label><br/>
+        <label><input type="checkbox" id="pf-payment" /> Zahlungsmittel</label>
+        <label><input type="checkbox" id="pf-longterm" /> Dauerparken</label>
+        <label><input type="checkbox" id="pf-payperuse" /> Pay-per-Use</label>
         <label><input type="checkbox" id="pf-reservation" /> Reservierung</label><br/>
-        <label><input type="checkbox" id="pf-open" /> Jetzt geöffnet</label><br/>
-        <label><input type="checkbox" id="pf-transit" /> ÖPNV fußläufig erreichbar</label><br/>
+        <label><input type="checkbox" id="pf-open" /> Jetzt geöffnet</label>
+        <label><input type="checkbox" id="pf-transit" /> ÖPNV fußläufig erreichbar</label>
         <label><input type="checkbox" id="pf-hascharging" /> E-Laden</label>
       </div>
 
       <div>
         <h4>Bezahlmöglichkeiten:</h4>
-        <label><input type="checkbox" id="pf-pay-cash" /> Bargeld</label><br/>
-        <label><input type="checkbox" id="pf-pay-ec" /> EC-Karte</label><br/>
-        <label><input type="checkbox" id="pf-pay-mastercard" /> Mastercard</label><br/>
+        <label><input type="checkbox" id="pf-pay-cash" /> Bargeld</label>
+        <label><input type="checkbox" id="pf-pay-ec" /> EC-Karte</label>
+        <label><input type="checkbox" id="pf-pay-mastercard" /> Mastercard</label>
         <label><input type="checkbox" id="pf-pay-visa" /> VISA</label><br/>
-        <label><input type="checkbox" id="pf-pay-mobile" /> Mobile Ticket Payment</label><br/>
-        <label><input type="checkbox" id="pf-pay-easypark" /> EasyPark</label><br/>
-        <label><input type="checkbox" id="pf-pay-dkv" /> DKV</label><br/>
+        <label><input type="checkbox" id="pf-pay-mobile" /> Mobile Ticket Payment</label>
+        <label><input type="checkbox" id="pf-pay-easypark" /> EasyPark</label>
+        <label><input type="checkbox" id="pf-pay-dkv" /> DKV</label>
         <label><input type="checkbox" id="pf-pay-ppude" /> PayPerUse DE-weit</label>
       </div>
     </div>
@@ -113,21 +115,21 @@
     <div id="efContainer" class="filters-grid" style="display:none;">
       <div>
         <h4>Filter E-Laden:</h4>
-        <label><input type="checkbox" id="ef-height" /> Höhenbegrenzung</label><br/>
-        <label><input type="checkbox" id="ef-surveillance" /> Überwacht</label><br/>
-        <label><input type="checkbox" id="ef-roofed" /> Überdacht</label><br/>
+        <label><input type="checkbox" id="ef-height" /> Höhenbegrenzung</label>
+        <label><input type="checkbox" id="ef-surveillance" /> Überwacht</label>
+        <label><input type="checkbox" id="ef-roofed" /> Überdacht</label>
         <label><input type="checkbox" id="ef-elevator" /> Aufzug</label><br/>
-        <label><input type="checkbox" id="ef-accessible" /> Barrierefrei</label><br/>
-        <label><input type="checkbox" id="ef-bike" /> Fahrradstellplatz</label><br/>
-        <label><input type="checkbox" id="ef-family" /> Familienparkplatz</label><br/>
-        <label><input type="checkbox" id="ef-women" /> Frauenparkplatz</label><br/>
-
-      </div>
-
-      <div>
+        <label><input type="checkbox" id="ef-accessible" /> Barrierefrei</label>
+        <label><input type="checkbox" id="ef-bike" /> Fahrradstellplatz</label>
+        <label><input type="checkbox" id="ef-family" /> Familienparkplatz</label>
+        <label><input type="checkbox" id="ef-women" /> Frauenparkplatz</label>
         <h4>Bezahloptionen</h4>
         <label><input type="checkbox" id="csPayDirect"/> Direkt</label><br/>
         <label><input type="checkbox" id="csPayContract"/> Rechnung</label>
+      </div>
+
+      <div>
+
 
         <h4>Steckertyp</h4>
         <label><input type="checkbox" id="ef-conn-type2" /> Typ 2</label><br/>
@@ -140,34 +142,19 @@
       </div>
     </div>
   </div>
-  <!-- Toolbar -->
-  <div class="panel">
-    <div class="toolbar">
-      <div class="group">
-        <label class="dark" for="filterText">Filter (Volltext)</label>
-        <input id="filterText" placeholder="z. B. Stadt, Name, ID ..." />
-      </div>
-      <div class="group">
-        <label class="dark" for="definitionId">Art</label>
-        <select id="definitionId">
-          <option value="">– alle –</option>
-        </select>
-      </div>
-      <div class="group">
-        <label class="dark">&nbsp;</label>
-        <button id="btnLoadFacilities">Parkhäuser laden</button>
-      </div>
-      <div class="group" style="align-items:flex-end;">
-        <span id="countBadge" class="muted">0 Treffer</span>
-      </div>
-    </div>
-    <div class="muted">Tipp: In der Liste einen Eintrag anklicken → Details + Belegung (nur diese Standort-ID). Rechts separat: E-Ladestationen.</div>
-  </div>
+
 
   <div class="layout">
     <!-- Linke Spalte: Liste -->
     <aside class="panel">
-      <h3>Parkhäuser (Liste)</h3>
+      <h3>Parkhäuser Liste</h3>
+      <div class="group">
+        <label class="dark" for="filterText">Filter (Volltext)</label>
+        <input id="filterText" placeholder="z. B. Stadt, Name, ID ..." />
+      </div>
+      <div class="group" style="align-items:flex-end;">
+        <span id="countBadge" class="muted">0 Treffer</span>
+      </div>
       <div class="list" id="facilitiesListBox">
         <table>
           <thead><tr><th>ID</th><th>Name</th><th class="muted">Definition</th></tr></thead>
@@ -179,11 +166,6 @@
     <!-- Mitte: Details zum Parkhaus -->
     <section class="panel">
       <h3>Details Parkhaus</h3>
-      <div class="subtabs">
-        <button id="tabOverview" class="ghost">Übersicht</button>
-        <button id="tabRaw" class="ghost">Rohdaten</button>
-      </div>
-
       <div id="viewOverview">
         <div class="kv">
           <b>Name</b><div id="facName">–</div>
@@ -197,9 +179,9 @@
         </div>
       </div>
 
-      <div id="viewRaw" style="display:none;">
+        <h4 style="margin:0 0 6px;">Rohdaten</h4>
         <pre id="facRaw">{ }</pre>
-      </div>
+
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
       <h3 style="margin:0 0 8px;">Details Ladestation</h3>
       <div class="kv" style="margin-bottom:8px;">
@@ -217,7 +199,7 @@
 
     <!-- Rechte Spalte: E-Ladestationen (symmetrisch zur linken Liste) -->
     <aside class="panel">
-      <h3>E-Ladestationen (Liste + Details)</h3>
+      <h3>E-Ladestationen Liste</h3>
 
       <div class="grid2" style="margin-bottom:8px;">
         <div class="group">
