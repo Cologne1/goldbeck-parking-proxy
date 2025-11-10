@@ -50,12 +50,98 @@
 
     /* Kleiner Abstand über Tabellen-Titeln */
     .table-title { margin:8px 0 6px; font-size:13px; color:#111; }
+    .filterbar { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:end; margin-bottom:10px; }
+    .filters-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    #filtersPanel h4 { margin:0 0 6px; font-size:14px; }
+    #filtersPanel label { font-size:13px; color:var(--ink); }
   </style>
 </head>
 <body>
 <header><h1>Goldbeck Parking – Test UI</h1></header>
 <main>
+  <!-- NEU: Globale Filterleiste -->
+  <div class="panel" id="filtersPanel">
+    <div class="filterbar">
+      <div class="group">
+        <label class="dark" for="modeSelect">Ansicht</label>
+        <select id="modeSelect">
+          <option value="parkhaus">Parkhaus</option>
+          <option value="eladen">Ladestation</option>
+        </select>
+      </div>
+      <div class="group" style="align-self:end;">
+        <button id="btnApplyFilters" class="ghost">Filter anwenden</button>
+        <button id="btnResetFilters" class="ghost" style="margin-left:6px;">Zurücksetzen</button>
+      </div>
+    </div>
 
+    <!-- Parkhaus-Filter -->
+    <div id="pfContainer" class="filters-grid">
+      <div>
+        <h4>Filter Parkobjekte:</h4>
+        <label><input type="checkbox" id="pf-height" /> Höhenbegrenzung</label><br/>
+        <label><input type="checkbox" id="pf-surveillance" /> Überwacht</label><br/>
+        <label><input type="checkbox" id="pf-roofed" /> Überdacht</label><br/>
+        <label><input type="checkbox" id="pf-elevator" /> Aufzug</label><br/>
+        <label><input type="checkbox" id="pf-accessible" /> Barrierefrei</label><br/>
+        <label><input type="checkbox" id="pf-bike" /> Fahrradstellplatz</label><br/>
+        <label><input type="checkbox" id="pf-family" /> Familienparkplatz</label><br/>
+        <label><input type="checkbox" id="pf-women" /> Frauenparkplatz</label><br/>
+        <label><input type="checkbox" id="pf-payment" /> Zahlungsmittel</label><br/>
+        <label><input type="checkbox" id="pf-longterm" /> Dauerparken</label><br/>
+        <label><input type="checkbox" id="pf-payperuse" /> Pay-per-Use</label><br/>
+        <label><input type="checkbox" id="pf-reservation" /> Reservierung</label><br/>
+        <label><input type="checkbox" id="pf-open" /> Jetzt geöffnet</label><br/>
+        <label><input type="checkbox" id="pf-transit" /> ÖPNV fußläufig erreichbar</label><br/>
+        <label><input type="checkbox" id="pf-hascharging" /> E-Laden</label>
+      </div>
+
+      <div>
+        <h4>Bezahlmöglichkeiten:</h4>
+        <label><input type="checkbox" id="pf-pay-cash" /> Bargeld</label><br/>
+        <label><input type="checkbox" id="pf-pay-ec" /> EC-Karte</label><br/>
+        <label><input type="checkbox" id="pf-pay-mastercard" /> Mastercard</label><br/>
+        <label><input type="checkbox" id="pf-pay-visa" /> VISA</label><br/>
+        <label><input type="checkbox" id="pf-pay-mobile" /> Mobile Ticket Payment</label><br/>
+        <label><input type="checkbox" id="pf-pay-easypark" /> EasyPark</label><br/>
+        <label><input type="checkbox" id="pf-pay-dkv" /> DKV</label><br/>
+        <label><input type="checkbox" id="pf-pay-ppude" /> PayPerUse DE-weit</label>
+      </div>
+    </div>
+
+    <!-- E-Laden-Filter -->
+    <div id="efContainer" class="filters-grid" style="display:none;">
+      <div>
+        <h4>Filter E-Laden:</h4>
+        <label><input type="checkbox" id="ef-height" /> Höhenbegrenzung</label><br/>
+        <label><input type="checkbox" id="ef-surveillance" /> Überwacht</label><br/>
+        <label><input type="checkbox" id="ef-roofed" /> Überdacht</label><br/>
+        <label><input type="checkbox" id="ef-elevator" /> Aufzug</label><br/>
+        <label><input type="checkbox" id="ef-accessible" /> Barrierefrei</label><br/>
+        <label><input type="checkbox" id="ef-bike" /> Fahrradstellplatz</label><br/>
+        <label><input type="checkbox" id="ef-family" /> Familienparkplatz</label><br/>
+        <label><input type="checkbox" id="ef-women" /> Frauenparkplatz</label><br/>
+        <label><input type="checkbox" id="ef-payment" /> Zahlungsmittel</label><br/>
+        <label><input type="checkbox" id="ef-plugtype" /> Steckertyp</label>
+      </div>
+
+      <div>
+        <h4>Bezahloptionen</h4>
+        <label><input type="checkbox" id="csPayDirect"> Direkt</label><br/>
+        <label><input type="checkbox" id="csPayContract"> Rechnung</label>
+
+        <h4 style="margin-top:12px;">Anzeigen pro Standort</h4>
+        <div style="margin-bottom:6px;">Steckertyp:</div>
+        <label><input type="checkbox" id="ef-conn-type2" /> Typ 2</label><br/>
+        <label><input type="checkbox" id="ef-conn-ccs" /> CCS</label>
+
+        <div style="margin-top:10px;">Leistung:</div>
+        <label><input type="checkbox" id="ef-pwr-50" /> 50+ kW</label><br/>
+        <label><input type="checkbox" id="ef-pwr-100" /> 100+ kW</label><br/>
+        <label><input type="checkbox" id="ef-pwr-150" /> 150+ kW</label>
+      </div>
+    </div>
+  </div>
   <!-- Toolbar -->
   <div class="panel">
     <div class="toolbar">
@@ -97,7 +183,6 @@
       <h3>Details Parkhaus</h3>
       <div class="subtabs">
         <button id="tabOverview" class="ghost">Übersicht</button>
-        <button id="tabOccupancy" class="ghost">Belegung</button>
         <button id="tabRaw" class="ghost">Rohdaten</button>
       </div>
 
@@ -114,33 +199,22 @@
         </div>
       </div>
 
-      <div id="viewOccupancy" style="display:none;">
-        <div class="kv">
-          <b>Standort-ID</b><div id="occFacId">–</div>
-          <b>Kombinierter Status</b><div id="occCombined">–</div>
-        </div>
-
-        <div class="table-title">Zählstellen</div>
-        <div class="list">
-          <table>
-            <thead>
-            <tr>
-              <th>Key/Name</th>
-              <th>Typ</th>
-              <th>max</th>
-              <th>belegt</th>
-              <th>frei</th>
-              <th>Status</th>
-            </tr>
-            </thead>
-            <tbody id="occTable"></tbody>
-          </table>
-        </div>
-      </div>
-
       <div id="viewRaw" style="display:none;">
         <pre id="facRaw">{ }</pre>
       </div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+      <h3 style="margin:0 0 8px;">Details Ladestation</h3>
+      <div class="kv" style="margin-bottom:8px;">
+        <b>Name</b><div id="csName">–</div>
+        <b>Adresse</b><div id="csAddress">–</div>
+        <b>Zahlung</b><div id="csPay" class="tagrow"></div>
+        <b>Zugang</b><div id="csAccess">–</div>
+        <b>Steckertyp</b><div id="csPlugType">–</div>
+        <b>Leistung</b><div id="csPower">–</div>
+      </div>
+
+      <h4 style="margin:0 0 6px;">Rohdaten</h4>
+      <pre id="csRaw">{ }</pre>
     </section>
 
     <!-- Rechte Spalte: E-Ladestationen (symmetrisch zur linken Liste) -->
@@ -165,21 +239,7 @@
         </table>
       </div>
 
-      <h3 style="margin:0 0 8px;">Details Ladestation</h3>
-      <div class="kv" style="margin-bottom:8px;">
-        <b>Name</b><div id="csName">–</div>
-        <b>Adresse</b><div id="csAddress">–</div>
-        <b>Erneuerbare</b><div id="csRenewable">–</div>
-        <b>Dynamische Leistung</b><div id="csDynPower">–</div>
-        <b>Authentifizierung</b><div id="csAuth" class="tagrow"></div>
-        <b>Zahlung</b><div id="csPay" class="tagrow"></div>
-        <b>Zugang</b><div id="csAccess">–</div>
-        <b>Eichrecht</b><div id="csCalLaw">–</div>
-        <b>Geräte-ID</b><div id="csDev">–</div>
-      </div>
 
-      <h4 style="margin:0 0 6px;">Rohdaten</h4>
-      <pre id="csRaw">{ }</pre>
     </aside>
   </div>
 </main>
