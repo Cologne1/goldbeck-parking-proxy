@@ -610,49 +610,35 @@ async function loadChargingAndWire() {
 }
 // Apply all charging filters (text, payment, connector, power)
 function applyChargingFilters() {
-  // Volltext aus dem globalen Feld (wirken auf CS) + optional rechtes Feld, falls noch vorhanden
-  const qGlobal = ($('#filterText').value || '').toLowerCase();
-  const qRight  = ($('#chargeFilter')?.value || '').toLowerCase();
-  const q       = (qGlobal + ' ' + qRight).trim();
+  const qtext = ($('#filterText')?.value || '').toLowerCase(); // Volltext global
+  const qright = ($('#chargeFilter')?.value || '').toLowerCase(); // rechter Filter (falls genutzt)
 
-  // Payment
   const wantDirect   = $('#csPayDirect')?.checked || false;
   const wantContract = $('#csPayContract')?.checked || false;
 
-  // Steckertyp
   const fType2 = $('#ef-conn-type2')?.checked || false;
   const fCCS   = $('#ef-conn-ccs')?.checked || false;
 
-  // Leistung
   const p50  = $('#ef-pwr-50')?.checked || false;
   const p100 = $('#ef-pwr-100')?.checked || false;
   const p150 = $('#ef-pwr-150')?.checked || false;
+
   let minKw = 0;
   if (p150) minKw = 150; else if (p100) minKw = 100; else if (p50) minKw = 50;
 
-  // Die 7 Feature-Checkboxen aus dem Parkhaus-Block wirken nun auch auf CS
-  const fHeight       = $('#pf-height')?.checked || false;
-  const fSurveillance = $('#pf-surveillance')?.checked || false;
-  const fRoofed       = $('#pf-roofed')?.checked || false;
-  const fElevator     = $('#pf-elevator')?.checked || false;
-  const fAccessible   = $('#pf-accessible')?.checked || false;
-  const fBike         = $('#pf-bike')?.checked || false;
-  const fFamily       = $('#pf-family')?.checked || false;
-  const fWomen        = $('#pf-women')?.checked || false;
+  const feat = readFeatureFlags();
 
   const rows = CS_ALL.filter(st => {
-    // Volltext
-    if (q) {
-      const blob = toLowerJsonStr(st);
-      if (blob.indexOf(q) === -1) return false;
-    }
+    // Volltext (global links) + rechter Textfilter (zusätzlich)
+    if (qtext)  { if (toLowerJsonStr(st).indexOf(qtext)  === -1) return false; }
+    if (qright) { if (toLowerJsonStr(st).indexOf(qright) === -1) return false; }
 
     // Payment
-    if (wantDirect && !stationHasPayment(st, 'Direct'))   return false;
+    if (wantDirect   && !stationHasPayment(st, 'Direct'))   return false;
     if (wantContract && !stationHasPayment(st, 'Contract')) return false;
 
     // Steckertyp
-    const plug = stationPlugType(st); // 'CCS' | 'Type 2'
+    const plug = stationPlugType(st);
     if (fType2 && plug !== 'Type 2') return false;
     if (fCCS   && plug !== 'CCS')    return false;
 
@@ -660,20 +646,66 @@ function applyChargingFilters() {
     const kw = stationMaxPowerKw(st) || 0;
     if (minKw && kw < minKw) return false;
 
-    // 7 Feature-Flags (nur prüfen, wenn gesetzt)
-    if (fHeight       && !csHasHeightLimit(st)) return false;
-    if (fSurveillance && !csIsSurveilled(st))   return false;
-    if (fRoofed       && !csIsRoofed(st))       return false;
-    if (fElevator     && !csHasElevator(st))    return false;
-    if (fAccessible   && !csIsAccessible(st))   return false;
-    if (fBike         && !csHasBikeParking(st)) return false;
-    if (fFamily       && !csHasFamilyParking(st)) return false;
-    if (fWomen        && !csHasWomenParking(st))  return false;
+    // 🔎 Feature-Checkboxen (wirken auf Charging-Attributes)
+    if (feat.height       && !stationHasFeature(st, 'height'))       return false;
+    if (feat.surveillance && !stationHasFeature(st, 'surveillance')) return false;
+    if (feat.roofed       && !stationHasFeature(st, 'roofed'))       return false;
+    if (feat.elevator     && !stationHasFeature(st, 'elevator'))     return false;
+    if (feat.accessible   && !stationHasFeature(st, 'accessible'))   return false;
+    if (feat.bike         && !stationHasFeature(st, 'bike'))         return false;
+    if (feat.family       && !stationHasFeature(st, 'family'))       return false;
+    if (feat.women        && !stationHasFeature(st, 'women'))        return false;
 
     return true;
   });
 
   renderChargingList(rows);
+}
+function wireFeatureCheckboxesBothPanels() {
+  const ids = [
+    // Parkhäuser-Panel
+    '#pf-height','#pf-surveillance','#pf-roofed','#pf-elevator',
+    '#pf-accessible','#pf-bike','#pf-family','#pf-women',
+    // E-Laden-Panel
+    '#ef-height','#ef-surveillance','#ef-roofed','#ef-elevator',
+    '#ef-accessible','#ef-bike','#ef-family','#ef-women',
+    // Payment/Steckertyp/Power direkt im E-Laden-Panel
+    '#csPayDirect','#csPayContract',
+    '#ef-conn-type2','#ef-conn-ccs',
+    '#ef-pwr-50','#ef-pwr-100','#ef-pwr-150'
+  ];
+  ids.forEach((sel) => {
+    const el = document.querySelector(sel);
+    if (el) el.addEventListener('change', applyChargingFilters);
+  });
+}
+
+// --- Feature-Mapping für Charging-Attributes ---
+function stationHasFeature(station, featureKey) {
+  const attrs = collectAttributes(station);
+  const hasAny = (keys, pred = (v)=>!!String(v).trim()) =>
+    anyAttrHas(toAttrsMap({ attributes: attrs }), keys, pred);
+
+  switch (featureKey) {
+    case 'height':       // Höhenbegrenzung vorhanden (egal ob m oder cm)
+      return hasAny(['CLEARANCE_METERS','EINFAHRTSHOEHE_M','EINFAHRTSHÖHE_M','HEIGHT_LIMIT_CM','EINFAHRTSHOEHE_CM','EINFAHRTSHÖHE_CM']);
+    case 'surveillance': // Überwacht / Kamera / CCTV
+      return hasAny(['SURVEILLANCE','CCTV','CAMERA','VIDEO_SURVEILLANCE','UEBERWACHT','ÜBERWACHT']);
+    case 'roofed':       // Überdacht
+      return hasAny(['ROOFED','UEBERDACHT','ÜBERDACHT'], v => String(v).toLowerCase() !== 'false');
+    case 'elevator':     // Aufzug
+      return hasAny(['ELEVATOR','AUFZUG'], v => String(v).toLowerCase() !== 'false');
+    case 'accessible':   // Barrierefrei
+      return hasAny(['ACCESSIBLE','BARRIER_FREE','BARRIEREFREI','ACCESSIBILITY'], v => /barrier|frei|yes|true/i.test(String(v)));
+    case 'bike':         // Fahrradstellplatz
+      return hasAny(['BIKE_PARKING','BICYCLE_PARKING','FAHRRADSTELLPLATZ']);
+    case 'family':       // Familienparkplatz
+      return hasAny(['FAMILY_PARKING','FAMILIENPARKPLATZ']);
+    case 'women':        // Frauenparkplatz
+      return hasAny(['WOMEN_PARKING','FRAUENPARKPLATZ']);
+    default:
+      return false;
+  }
 }
 
 function outletAttr(outlet, key) {
@@ -824,6 +856,21 @@ function setModeUI(mode) {
   $('#pfContainer').style.display = (m === 'parkhaus') ? 'grid' : 'none';
   $('#efContainer').style.display = (m === 'eladen')   ? 'grid' : 'none';
 }
+function readFeatureFlags() {
+  // gleiche Semantik für pf-* und ef-*; wenn eins gesetzt ist, gilt es
+  const q = (id) => !!(document.querySelector('#' + id)?.checked);
+
+  return {
+    height:       q('pf-height')       || q('ef-height'),
+    surveillance: q('pf-surveillance') || q('ef-surveillance'),
+    roofed:       q('pf-roofed')       || q('ef-roofed'),
+    elevator:     q('pf-elevator')     || q('ef-elevator'),
+    accessible:   q('pf-accessible')   || q('ef-accessible'),
+    bike:         q('pf-bike')         || q('ef-bike'),
+    family:       q('pf-family')       || q('ef-family'),
+    women:        q('pf-women')        || q('ef-women'),
+  };
+}
 
 function resetFilters(mode) {
   const m = mode || ($('#modeSelect')?.value || 'parkhaus');
@@ -892,6 +939,8 @@ async function boot() {
     applyTopFilters();
   });
   setModeUI();
+
+  wireFeatureCheckboxesBothPanels();
 
   // Globale Filterknöpfe
   $('#btnApplyFilters').addEventListener('click', () => {
