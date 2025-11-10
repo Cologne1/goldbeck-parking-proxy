@@ -610,49 +610,72 @@ async function loadChargingAndWire() {
 }
 // Apply all charging filters (text, payment, connector, power)
 function applyChargingFilters() {
-  const q = (
-    ($('#filterText')?.value || '') ||  // globaler Volltext
-    ($('#chargeFilter')?.value || '')   // (optional) lokaler Right-Panel-Filter
-  ).toLowerCase();
+  // Volltext aus dem globalen Feld (wirken auf CS) + optional rechtes Feld, falls noch vorhanden
+  const qGlobal = ($('#filterText').value || '').toLowerCase();
+  const qRight  = ($('#chargeFilter')?.value || '').toLowerCase();
+  const q       = (qGlobal + ' ' + qRight).trim();
 
+  // Payment
   const wantDirect   = $('#csPayDirect')?.checked || false;
   const wantContract = $('#csPayContract')?.checked || false;
 
+  // Steckertyp
   const fType2 = $('#ef-conn-type2')?.checked || false;
   const fCCS   = $('#ef-conn-ccs')?.checked || false;
 
+  // Leistung
   const p50  = $('#ef-pwr-50')?.checked || false;
   const p100 = $('#ef-pwr-100')?.checked || false;
   const p150 = $('#ef-pwr-150')?.checked || false;
-
   let minKw = 0;
   if (p150) minKw = 150; else if (p100) minKw = 100; else if (p50) minKw = 50;
 
+  // Die 7 Feature-Checkboxen aus dem Parkhaus-Block wirken nun auch auf CS
+  const fHeight       = $('#pf-height')?.checked || false;
+  const fSurveillance = $('#pf-surveillance')?.checked || false;
+  const fRoofed       = $('#pf-roofed')?.checked || false;
+  const fElevator     = $('#pf-elevator')?.checked || false;
+  const fAccessible   = $('#pf-accessible')?.checked || false;
+  const fBike         = $('#pf-bike')?.checked || false;
+  const fFamily       = $('#pf-family')?.checked || false;
+  const fWomen        = $('#pf-women')?.checked || false;
+
   const rows = CS_ALL.filter(st => {
-    // text filter
+    // Volltext
     if (q) {
       const blob = toLowerJsonStr(st);
       if (blob.indexOf(q) === -1) return false;
     }
 
-    // payment filters
-    if (wantDirect && !stationHasPayment(st, 'Direct')) return false;
+    // Payment
+    if (wantDirect && !stationHasPayment(st, 'Direct'))   return false;
     if (wantContract && !stationHasPayment(st, 'Contract')) return false;
 
-    // connector filters
+    // Steckertyp
     const plug = stationPlugType(st); // 'CCS' | 'Type 2'
     if (fType2 && plug !== 'Type 2') return false;
-    if (fCCS && plug !== 'CCS') return false;
+    if (fCCS   && plug !== 'CCS')    return false;
 
-    // power filters
+    // Leistung
     const kw = stationMaxPowerKw(st) || 0;
     if (minKw && kw < minKw) return false;
+
+    // 7 Feature-Flags (nur prüfen, wenn gesetzt)
+    if (fHeight       && !csHasHeightLimit(st)) return false;
+    if (fSurveillance && !csIsSurveilled(st))   return false;
+    if (fRoofed       && !csIsRoofed(st))       return false;
+    if (fElevator     && !csHasElevator(st))    return false;
+    if (fAccessible   && !csIsAccessible(st))   return false;
+    if (fBike         && !csHasBikeParking(st)) return false;
+    if (fFamily       && !csHasFamilyParking(st)) return false;
+    if (fWomen        && !csHasWomenParking(st))  return false;
 
     return true;
   });
 
   renderChargingList(rows);
 }
+
 function outletAttr(outlet, key) {
   const K = String(key).toUpperCase();
   const arr = outlet?.attributes || [];
@@ -699,6 +722,59 @@ function buildOutletsView(detail) {
     const powerKW = getOutletPowerKW(o);
     return { type, powerKW };
   });
+}
+function stationAttrsMap(station) {
+  const m = new Map();
+  const attrs = collectAttributes(station) || [];
+  for (const a of attrs) {
+    if (!a || a.key == null) continue;
+    m.set(String(a.key).toUpperCase(), a.value != null ? String(a.value) : '');
+  }
+  return m;
+}
+function hasAnyKeyTrue(attrsMap, keys) {
+  for (const k of keys) {
+    const v = attrsMap.get(String(k).toUpperCase());
+    if (v == null) continue;
+    const b = boolFromString(v);
+    if (b === true) return true;
+    if (b === null && String(v).trim() !== '') return true; // "vorhanden" ohne boolean
+  }
+  return false;
+}
+// Einzelne Prädikate
+function csHasHeightLimit(st) {
+  const M = stationAttrsMap(st);
+  // Höhe gilt als vorhanden, wenn eine der Höhenangaben gesetzt ist
+  return hasAnyKeyTrue(M, ['HEIGHT_LIMIT_CM','EINFAHRTSHOEHE_CM','EINFAHRTSHÖHE_CM','CLEARANCE_METERS','EINFAHRTSHOEHE_M','EINFAHRTSHÖHE_M']);
+}
+function csIsSurveilled(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['SURVEILLANCE','VIDEO_SURVEILLANCE','VIDEOÜBERWACHUNG']);
+}
+function csIsRoofed(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['ROOFED','UEBERDACHT','ÜBERDACHT']);
+}
+function csHasElevator(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['ELEVATOR','AUFZUG']);
+}
+function csIsAccessible(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['ACCESSIBLE','BARRIER_FREE','BARRIEREFREI']);
+}
+function csHasBikeParking(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['BICYCLE_PARKING','BIKE_PARKING','FAHRRADSTELLPLATZ']);
+}
+function csHasFamilyParking(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['FAMILY_PARKING','FAMILIENPARKPLATZ']);
+}
+function csHasWomenParking(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['WOMEN_PARKING','FRAUENPARKPLATZ','LADIES_PARKING']);
 }
 function renderChargingDetail(detail) {
   const attrs = collectAttributes(detail);
@@ -801,24 +877,16 @@ function applyTopFilters() {
 }
 async function boot() {
 
+  await reloadFacilities();        // lädt und filtert (Definition 14)
+  await loadChargingAndWire();     // lädt CS initial + verdrahtet
 
-  await reloadFacilities();
-  const ft = document.getElementById('filterText');
-  if (ft) {
-    ft.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        applyTopFilters(); // triggert für Parkhaus -> filterFacilities()
-      }
-    });
-  }
+  // Volltext wirkt links & rechts
+  $('#filterText').addEventListener('input', () => {
+    filterFacilities();
+    applyChargingFilters();
+  });
 
-  // Events Parkhäuser
-
-  $('#filterText').addEventListener('input', filterFacilities);
-
-
-  // Mode-Schalter
+  // Mode-Schalter (nur UI)
   $('#modeSelect').addEventListener('change', () => {
     setModeUI();
     applyTopFilters();
@@ -826,10 +894,14 @@ async function boot() {
   setModeUI();
 
   // Globale Filterknöpfe
-  $('#btnApplyFilters').addEventListener('click', applyTopFilters);
+  $('#btnApplyFilters').addEventListener('click', () => {
+    filterFacilities();
+    applyChargingFilters();
+  });
   $('#btnResetFilters').addEventListener('click', () => {
     resetFilters();
-    applyTopFilters();
+    filterFacilities();
+    applyChargingFilters();
   });
 
   // 🔹 Ladestationen: initial laden & verdrahten
