@@ -61,7 +61,6 @@ function parsePostalAddressBlock(block) {
 
 function extractAddressFromAttributes(obj) {
   const attrs = collectAttributes(obj);
-  console.log(attrs)
   const postal = attrs.find((a) => String(a && a.key).toUpperCase() === 'POSTAL_ADDRESS');
   if (postal && postal.value) return parsePostalAddressBlock(postal.value);
 
@@ -111,6 +110,7 @@ function extractClearance(detail) {
 
 function extractCapacity(detail) {
   const attrs = collectAttributes(detail);
+  console.log(detail, attrs)
   const a = detail && (detail.capacityTotal != null ? detail.capacityTotal : detail.totalCapacity);
   if (a != null && a !== '') return a;
   const attrCap = attrVal(attrs, ['CAPACITY_TOTAL', 'TOTAL_CAPACITY']);
@@ -464,6 +464,7 @@ async function showFacilityDetails(id) {
     const parts = [];
     parts.push(statusDe);
     if (occ != null && max != null) parts.push(`${occ}/${max} belegt`);
+    if (max != null) $('#facCapacity').textContent = max;
     if (free != null) parts.push(`${free} frei`);
     return parts.join(' · ');
   }
@@ -655,6 +656,7 @@ function applyChargingFilters() {
     if (feat.bike         && !stationHasFeature(st, 'bike'))         return false;
     if (feat.family       && !stationHasFeature(st, 'family'))       return false;
     if (feat.women        && !stationHasFeature(st, 'women'))        return false;
+    if (feat.available    && !stationHasFeature(st, 'available'))        return false;
 
     return true;
   });
@@ -667,8 +669,7 @@ function wireFeatureCheckboxesBothPanels() {
     '#pf-height','#pf-surveillance','#pf-roofed','#pf-elevator',
     '#pf-accessible','#pf-bike','#pf-family','#pf-women',
     // E-Laden-Panel
-    '#ef-height','#ef-surveillance','#ef-roofed','#ef-elevator',
-    '#ef-accessible','#ef-bike','#ef-family','#ef-women',
+    '#ef-available',
     // Payment/Steckertyp/Power direkt im E-Laden-Panel
     '#csPayDirect','#csPayContract',
     '#ef-conn-type2','#ef-conn-ccs',
@@ -683,6 +684,14 @@ function wireFeatureCheckboxesBothPanels() {
 // --- Feature-Mapping für Charging-Attributes ---
 function stationHasFeature(station, featureKey) {
   const attrs = collectAttributes(station);
+  let is_Available = false;
+  is_Available = station.nativeStatus == "AVAILABLE";
+  const outlets = Array.isArray(station?.outlets) ? station.outlets : [];
+  for (const o of outlets) {
+    if (o?.nativeStatus == "AVAILABLE") {
+      is_Available = true;
+    };
+  }
   const hasAny = (keys, pred = (v)=>!!String(v).trim()) =>
     anyAttrHas(toAttrsMap({ attributes: attrs }), keys, pred);
 
@@ -701,6 +710,8 @@ function stationHasFeature(station, featureKey) {
       return hasAny(['BIKE_PARKING','BICYCLE_PARKING','FAHRRADSTELLPLATZ']);
     case 'family':       // Familienparkplatz
       return hasAny(['FAMILY_PARKING','FAMILIENPARKPLATZ']);
+    case 'available':       // Familienparkplatz
+      return is_Available;
     case 'women':        // Frauenparkplatz
       return hasAny(['WOMEN_PARKING','FRAUENPARKPLATZ']);
     default:
@@ -804,6 +815,10 @@ function csHasFamilyParking(st) {
   const M = stationAttrsMap(st);
   return hasAnyKeyTrue(M, ['FAMILY_PARKING','FAMILIENPARKPLATZ']);
 }
+function csHasAvailable(st) {
+  const M = stationAttrsMap(st);
+  return hasAnyKeyTrue(M, ['AVAILABLE','IS_AVAILABLE']);
+}
 function csHasWomenParking(st) {
   const M = stationAttrsMap(st);
   return hasAnyKeyTrue(M, ['WOMEN_PARKING','FRAUENPARKPLATZ','LADIES_PARKING']);
@@ -861,14 +876,15 @@ function readFeatureFlags() {
   const q = (id) => !!(document.querySelector('#' + id)?.checked);
 
   return {
-    height:       q('pf-height')       || q('ef-height'),
-    surveillance: q('pf-surveillance') || q('ef-surveillance'),
-    roofed:       q('pf-roofed')       || q('ef-roofed'),
-    elevator:     q('pf-elevator')     || q('ef-elevator'),
-    accessible:   q('pf-accessible')   || q('ef-accessible'),
-    bike:         q('pf-bike')         || q('ef-bike'),
-    family:       q('pf-family')       || q('ef-family'),
-    women:        q('pf-women')        || q('ef-women'),
+    height:       q('pf-height'),
+    surveillance: q('pf-surveillance'),
+    roofed:       q('pf-roofed'),
+    elevator:     q('pf-elevator'),
+    accessible:   q('pf-accessible'),
+    bike:         q('pf-bike'),
+    family:       q('pf-family'),
+    women:        q('pf-women'),
+    available:    q('ef-available')
   };
 }
 
@@ -883,41 +899,7 @@ function resetFilters(mode) {
     const ft = $('#filterText'); if (ft) ft.value = '';
   }
 }
-function findTotalCounter(occJson) {
-  const counters = (occJson && Array.isArray(occJson.counters)) ? occJson.counters : [];
-  if (!counters.length) return null;
 
-  // robuste Erkennung „total“
-  return counters.find(c => {
-    const key   = (c.key || c.name || '').toString().toLowerCase();
-    const nId   = (c.nativeId && (c.nativeId.value || c.nativeId.id) || '').toString().toLowerCase();
-    const ctype = (c.counterType && (c.counterType.type || '') || '').toString().toLowerCase();
-    const label = (Array.isArray(c.counterType?.translations) ? (c.counterType.translations[0]?.value || '') : '').toString().toLowerCase();
-
-    return key === 'total' || nId === 'total' || ctype === 'total' || label === 'total';
-  }) || null;
-}
-
-function formatOccFromTotalRow(totalRow) {
-  if (!totalRow) return '–';
-  const max = (typeof totalRow.maxPlaces === 'number') ? totalRow.maxPlaces : null;
-  const occ = (typeof totalRow.occupiedPlaces === 'number') ? totalRow.occupiedPlaces : null;
-  const free = (typeof totalRow.freePlaces === 'number') ? totalRow.freePlaces : (max != null && occ != null ? (max - occ) : null);
-
-  // Status: nimm, wenn vorhanden; sonst heuristisch aus Verhältnis
-  let status = (totalRow.status || '').toString().toLowerCase();
-  if (!status && max && (occ != null)) {
-    const ratio = occ / max;
-    status = (ratio <= 0.60) ? 'free' : (ratio <= 0.90 ? 'tight' : 'full');
-  }
-  const statusDe = status === 'free' ? 'frei' : status === 'tight' ? 'angespannt' : status === 'full' ? 'voll' : 'unbekannt';
-
-  const parts = [];
-  parts.push(statusDe);
-  if (occ != null && max != null) parts.push(`${occ}/${max} belegt`);
-  if (free != null) parts.push(`${free} frei`);
-  return parts.join(' · ');
-}
 function applyTopFilters() {
   filterFacilities();
   applyChargingFilters();
