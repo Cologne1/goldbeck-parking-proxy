@@ -56,12 +56,23 @@ function parsePostalAddressBlock(block) {
   }
   const line2 = [zip, city].filter(Boolean).join(' ');
   const c = country === 'DEU' ? 'DE' : country;
-  return [street, line2, c].filter(Boolean).join(', ');
+  return [street, line2, c].filter(Boolean).join('<br/>');
 }
-
+function formatPostalAddress(postal) {
+  if (!postal || typeof postal !== 'object') return '';
+  const street = [postal.street1, postal.street2].filter(Boolean).join(' ').trim();
+  const line1 = street || postal.name || '';
+  const line2 = [postal.zip, postal.city].filter(Boolean).join(' ').trim();
+  const country = postal.country || '';
+  return [line1, line2, country].filter(Boolean).join('<br/>');
+}
 function extractAddressFromAttributes(obj) {
   const attrs = collectAttributes(obj);
   const postal = attrs.find((a) => String(a && a.key).toUpperCase() === 'POSTAL_ADDRESS');
+  if (obj.postalAddress) {
+    const html = formatPostalAddress(obj.postalAddress);
+    if (html) return html;
+  }
   if (postal && postal.value) return parsePostalAddressBlock(postal.value);
 
   const street = attrVal(attrs, ['STREET', 'straße', 'strasse']);
@@ -181,7 +192,16 @@ function extractPayments(detail) {
 
   return Object.keys(namesSet);
 }
-
+function firstChargingStationId(devicesRaw) {
+    const list = pickArray(devicesRaw);
+    for (const d of list) {
+        if (!d) continue;
+       const catKey = String(d?.category?.key || '').toUpperCase();
+      const did = d?.id;
+      if (catKey === 'CHARGINGSTATION' && did != null) return String(did);
+     }
+    return null;
+  }
 // ---------- Belegung (REST /iPCM) ----------
 function normalizeOccForFacility(res, facId) {
   if (!res) return null;
@@ -358,7 +378,7 @@ const loadFacility           = (id) => apiJSON('/api/facilities/' + encodeURICom
 const loadOccupanciesForFacility = (id) => apiJSON('/api/occupancies/facility/' + encodeURIComponent(id));
 const loadDevicesForFacility     = (id) => apiJSON('/api/devices/facility/' + encodeURIComponent(id));
 // Charging:
-const loadChargingStations   = () => apiJSON('/api/charging-stations');
+const loadChargingStations   = () => apiJSON('/api/charging-stations/?firstResult=0&maxResults=800&order=ASC&sort=DISTANCE');
 const loadChargingStation    = (id) => apiJSON('/api/charging-stations/' + encodeURIComponent(id));
 
 // ---------- State ----------
@@ -381,7 +401,6 @@ function renderFacilitiesTable(rows) {
       '<tr>' +
       '<td><a class="id-link" href="#" data-fid="' + id + '">' + id + '</a></td>' +
       '<td>' + name + '</td>' +
-      '<td class="muted">' + def + '</td>' +
       '</tr>'
     );
   }
@@ -480,8 +499,34 @@ async function showFacilityDetails(id) {
     ]);
 
     // --- UI: Stammdaten ---
+    let facAddrHtml = extractAddressFromAttributes(detail) || '';
+
+// 2) Fallback/Ergänzung: Adresse aus verknüpfter Ladestation ziehen
+    try {
+      const csId = firstChargingStationId(devicesRaw);
+      if (csId) {
+        const csDetail = await getChargingRich(csId).then(r => r.detail).catch(() => null);
+        const csAddr = csDetail
+          ? (extractAddressFromAttributes(csDetail) || csDetail.postalAddress || '')
+          : '';
+
+        // Standard: nur wenn Facility-Adresse leer ist, nimm die CS-Adresse
+        if (!facAddrHtml && csAddr) {
+          facAddrHtml = csAddr;
+        }
+
+        // Falls du IMMER die CS-Adresse bevorzugen willst, nimm stattdessen:
+        // if (csAddr) facAddrHtml = csAddr;
+
+        // Oder beides anzeigen (mit Label):
+        // if (csAddr && csAddr !== facAddrHtml) {
+        //   facAddrHtml = [facAddrHtml || '–', '<span class="muted">(Adresse aus Ladestation)</span><br/>', csAddr]
+        //     .filter(Boolean).join('<br/>');
+        // }
+      }
+    } catch { /* still okay */ }
     $('#facName').textContent      = (detail && detail.name) || '–';
-    $('#facAddress').textContent   = extractAddressFromAttributes(detail) || '–';
+    $('#facAddress').innerHTML = facAddrHtml || '–';
     $('#facClearance').textContent = extractClearance(detail) || '–';
     $('#facCapacity').textContent  = extractCapacity(detail) || '–';
     $('#facRates').textContent     = extractRates(detail) || '–';
@@ -570,6 +615,7 @@ function renderChargingList(list) {
   }
   tbody.innerHTML = out.join('');
 
+  $('#countBadge2').textContent = list.length + ' Treffer';
   $$('#chargeTbody .id-link').forEach((a) => {
     a.addEventListener('click', async function (e) {
       e.preventDefault();
@@ -583,9 +629,41 @@ function renderChargingList(list) {
     });
   });
 }
+
+function extractChargingImageIds(detail) {
+   const ids = new Set();
+   if (!detail || typeof detail !== 'object') return [];
+
+      // 1) Häufiges Schema: detail.images = [{ id }] oder { fileAttachmentId }
+        if (Array.isArray(detail.images)) {
+       for (const im of detail.images) {
+            const a = im && (im.id ?? im.fileAttachmentId);
+            if (a != null) ids.add(String(a));
+        }
+     }
+   // 2) Alternativ: detail.fileAttachments = [{ id }]
+     if (Array.isArray(detail.fileAttachments)) {
+       for (const fa of detail.fileAttachments) {
+           const a = fa && (fa.id ?? fa.fileAttachmentId);
+           if (a != null) ids.add(String(a));
+         }
+     }
+   // 3) Manchmal hängen Bilder an EVSE/Outlets
+     if (Array.isArray(detail.outlets)) {
+       for (const o of detail.outlets) {
+           if (Array.isArray(o?.images)) {
+               for (const im of o.images) {
+                   const a = im && (im.id ?? im.fileAttachmentId);
+                   if (a != null) ids.add(String(a));
+                }
+             }
+         }
+      }
+    return Array.from(ids);
+}
 async function loadChargingAndWire() {
   const all = await loadChargingStations();
-  CS_ALL = pickArray(all);
+  CS_ALL = pickArray(all).sort((a, b) => Number(a.id) - Number(b.id));;
 
   // initial mit aktuellen Häkchen rendern
   applyChargingFilters();
@@ -803,10 +881,6 @@ function csHasElevator(st) {
   const M = stationAttrsMap(st);
   return hasAnyKeyTrue(M, ['ELEVATOR','AUFZUG']);
 }
-function csIsAccessible(st) {
-  const M = stationAttrsMap(st);
-  return hasAnyKeyTrue(M, ['ACCESSIBLE','BARRIER_FREE','BARRIEREFREI']);
-}
 function csHasBikeParking(st) {
   const M = stationAttrsMap(st);
   return hasAnyKeyTrue(M, ['BICYCLE_PARKING','BIKE_PARKING','FAHRRADSTELLPLATZ']);
@@ -827,12 +901,26 @@ function renderChargingDetail(detail) {
   const attrs = collectAttributes(detail);
 
   $('#csName').textContent    = (detail && (detail.name || detail.label)) || '–';
-  $('#csAddress').textContent = extractAddressFromAttributes(detail) || (detail && detail.addressLine) || '–';
+  $('#csAddress').innerHTML = extractAddressFromAttributes(detail) || (detail && detail.addressLine) || '–';
 
   const pay  = splitLines(getAttr(attrs, 'PAYMENT_OPTIONS'));
   chips($('#csPay'),  pay);
+  try {
+     const imgEl  = document.getElementById('csImage');
+      const boxEl  = document.getElementById('csImageBox');
+      const imgId = detail?.image?.id;
+      if (imgEl && boxEl) {
+          if (imgId) {
+             // Proxy liefert Bild direkt durch → <img src="/api/charging-files/:id">
+             imgEl.src = '/api/charging-files/' + imgId;
+             imgEl.style.display = 'block';
+          } else {
+             imgEl.removeAttribute('src');
+              imgEl.style.display = 'none';
+           }
+       }
+    } catch {}
 
-  $('#csAccess').textContent = getAttr(attrs, 'ACCESSIBILITY') || '–';
 
 
   // ---- Outlets (Steckertyp & Leistung je Outlet) ----
@@ -861,7 +949,9 @@ async function reloadFacilities() {
   const all = pickArray(data);
 
   // Nur Typ/Definition 14
-  FAC_ALL = all.filter(f => ALLOWED_FAC_DEFS.has(String(f?.definitionId)));
+  FAC_ALL = all
+    .filter(f => ALLOWED_FAC_DEFS.has(String(f?.definitionId)))
+    .sort((a, b) => Number(a.id) - Number(b.id));
 
   filterFacilities();
 }
@@ -935,18 +1025,7 @@ async function boot() {
     applyChargingFilters();
   });
 
-  // 🔹 Ladestationen: initial laden & verdrahten
-  try {
-    await loadChargingAndWire();
-  } catch (e) {
-    $('#csRaw').textContent = safeJson({ error: String(e && e.message ? e.message : e) });
-  }
 
-  // Button bleibt als „manuell neu laden“
-  $('#btnLoadCharging').addEventListener('click', async function () {
-    try { await loadChargingAndWire(); }
-    catch (e) { $('#csRaw').textContent = safeJson({ error: String(e && e.message ? e.message : e) }); }
-  });
 }
 
 window.addEventListener('DOMContentLoaded', boot);
