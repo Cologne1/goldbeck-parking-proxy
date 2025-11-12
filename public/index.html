@@ -23,7 +23,7 @@
     .ghost:hover { border-color:#cbd5e1; }
 
     /* Symmetrisches Layout: linke + rechte Spalte gleich breit */
-    .layout { display:grid; grid-template-columns: 420px 1fr 420px; gap:14px; align-items:start; }
+    .layout { display:grid; gap:14px; align-items:start; }
 
     .panel { position: relative; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
     .panel h3 { margin:0 0 10px; font-size:15px; line-height:1.2; }
@@ -37,7 +37,7 @@
     .id-link:hover { text-decoration:underline; }
 
     .kv { display:grid; grid-template-columns: 160px 1fr; gap:6px 10px; font-size:14px; }
-    #csImageBox + .kv {
+    #csImageBox:has(img[src]) + .kv {
       grid-template-columns: 100px 1fr;
       padding-left: 75px;
     }
@@ -55,17 +55,108 @@
     /* Kleiner Abstand über Tabellen-Titeln */
     .table-title { margin:8px 0 6px; font-size:13px; color:#111; }
     .filterbar { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:end; margin-bottom:10px; }
-    .filters-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+
+    @media screen and (min-width: 769px) {
+      .filters-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    }
     #filtersPanel h4 { margin:6px 0 6px; font-size:14px; }
     #filtersPanel label { font-size:13px; color:var(--ink); }
     .toolbar { display:grid; grid-template-columns: 2fr auto; gap:10px; align-items:end; margin-bottom:12px; }
+    /* —— Modal Overlay —— */
+    body.modal-open { overflow: hidden; }
+    #overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s;
+      z-index: 9999;
+    }
+    #overlay.open {
+      opacity: 1;
+      pointer-events: all;
 
+
+    }
+    #overlay .modal {
+      position: absolute; inset: 0;
+      margin: auto; width: min(1100px, 92vw); height: min(90vh, 900px);
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25);
+      display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+    }
+    #overlay .modal header {
+      background: #fff; color: var(--ink);
+      padding: 10px 14px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #overlay .modal header h3 { margin: 0; font-size: 16px; }
+    #overlay .modal header .close-btn {
+      appearance: none; color: #000;border: 1px solid var(--line); background: #fff;
+      padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    }
+    #overlay .modal .content {
+      overflow: auto; padding: 12px; background: var(--bg);
+    }
+
+    /* optional: zwei Spalten innen */
+    .modal-grid { display: grid; grid-template-columns: 1fr ; gap: 12px; }
+    .modal .panel { background: var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+    .modal-grid .panel:nth-of-type(2) { display: none;}
+    .modal-grid.lade .panel:nth-of-type(1) { display: none;}
+    .modal-grid.lade .panel:nth-of-type(2) { display: block;}
   </style>
 </head>
 <body>
 <header><h1>Goldbeck Parking – Test UI</h1></header>
 <main>
-  <!-- NEU: Globale Filterleiste -->
+  <!-- Overlay / Modal für Details -->
+  <div id="overlay">
+    <div class="modal">
+      <header>
+        <h3 id="overlayTitle">Details</h3>
+        <button id="overlayClose" class="close-btn" type="button">Schließen</button>
+      </header>
+      <div class="content">
+        <div class="modal-grid">
+          <!-- Linke Box: Details Parkhaus -->
+          <section class="panel">
+            <h3 style="margin:0 0 8px;">Details Parkhaus</h3>
+            <div class="kv">
+              <b>Name</b><div id="facName">–</div>
+              <b>Adresse</b><div id="facAddress">–</div>
+              <b>Einfahrtshöhe</b><div id="facClearance">–</div>
+              <b>Gesamtplätze</b><div id="facCapacity">–</div>
+              <b>Belegung</b><div id="facStatus">–</div>
+              <b>Tarife</b><div id="facRates">–</div>
+              <b>Features</b><div id="facFeatures" class="tagrow"></div>
+              <b>Zahlung</b><div id="facPayments" class="tagrow"></div>
+            </div>
+            <h4 class="table-title">Rohdaten</h4>
+            <pre id="facRaw">{ }</pre>
+          </section>
+
+          <!-- Rechte Box: Details Ladestation -->
+          <section class="panel">
+            <h3 style="margin:0 0 8px;">Details Ladestation</h3>
+            <div id="csImageBox" style="margin-bottom:10px;">
+              <img id="csImage" alt="Ladestation"
+                   style="max-width:100%;height:100px;position:absolute;border-radius:8px;display:none;" />
+            </div>
+            <div class="kv" style="margin-bottom:8px;">
+              <b>Name</b><div id="csName">–</div>
+              <b>Adresse</b><div id="csAddress">–</div>
+              <b>Zahlung</b><div id="csPay" class="tagrow"></div>
+              <b>Steckertyp</b><div id="csPlugType">–</div>
+              <b>Leistung</b><div id="csPower">–</div>
+            </div>
+            <h4 class="table-title">Rohdaten</h4>
+            <pre id="csRaw">{ }</pre>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="panel" id="filtersPanel">
     <div class="filterbar">
       <div class="group">
@@ -76,7 +167,7 @@
         </select>
       </div>
       <div class="group" style="align-self:end;flex-direction: row;">
-        <button id="btnApplyFilters" class="ghost">Filter anwenden</button>
+        <button style="display: none" id="btnApplyFilters" class="ghost">Filter anwenden</button>
         <button id="btnResetFilters" class="ghost" style="margin-left:6px;">Zurücksetzen</button>
       </div>
     </div>
@@ -160,43 +251,7 @@
       </div>
     </aside>
 
-    <!-- Mitte: Details zum Parkhaus -->
-    <section class="panel" >
-      <h3>Details Parkhaus</h3>
-      <div id="viewOverview">
-        <div class="kv">
-          <b>Name</b><div id="facName">–</div>
-          <b>Adresse</b><div id="facAddress">–</div>
-          <b>Einfahrtshöhe</b><div id="facClearance">–</div>
-          <b>Gesamtplätze</b><div id="facCapacity">–</div>
-          <b>Belegung</b><div id="facStatus">–</div>
-          <b>Tarife</b><div id="facRates">–</div>
-          <b>Features</b><div id="facFeatures" class="tagrow"></div>
-          <b>Zahlung</b><div id="facPayments" class="tagrow"></div>
-        </div>
-      </div>
 
-        <h4 style="margin:0 0 6px;">Rohdaten</h4>
-        <pre id="facRaw">{ }</pre>
-
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
-      <h3 style="margin:0 0 8px;">Details Ladestation</h3>
-      <div id="csImageBox" style="margin-bottom:10px;">
-        <img id="csImage"
-            alt="Ladestation"
-            style="position: absolute;height: 100px;max-width:100%; border-radius:8px; display:none;" />
-      </div>
-      <div class="kv" style="margin-bottom:8px;">
-        <b>Name</b><div id="csName">–</div>
-        <b>Adresse</b><div id="csAddress">–</div>
-        <b>Zahlung</b><div id="csPay" class="tagrow"></div>
-        <b>Steckertyp</b><div id="csPlugType">–</div>
-        <b>Leistung</b><div id="csPower">–</div>
-      </div>
-
-      <h4 style="margin:0 0 6px;">Rohdaten</h4>
-      <pre id="csRaw">{ }</pre>
-    </section>
 
     <!-- Rechte Spalte: E-Ladestationen (symmetrisch zur linken Liste) -->
     <aside class="panel">

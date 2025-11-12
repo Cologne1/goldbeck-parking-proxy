@@ -411,6 +411,9 @@ function renderFacilitiesTable(rows) {
       e.preventDefault();
       const id = this.getAttribute('data-fid');
       if (id) showFacilityDetails(id);
+      if (document.getElementById('overlay')) {
+        openOverlay('Details – Parkhaus');
+      }
     });
   });
 
@@ -623,6 +626,9 @@ function renderChargingList(list) {
       try {
         const d = await loadChargingStation(id);
         renderChargingDetail(d);
+        if (document.getElementById('overlay')) {
+          openOverlay('Details – Ladestation');
+        }
       } catch (err) {
         $('#csRaw').textContent = safeJson({ error: String(err && err.message ? err.message : err) });
       }
@@ -960,6 +966,8 @@ function setModeUI(mode) {
   // Nur die Filter-Sektionen umschalten
   $('#pfContainer').style.display = (m === 'parkhaus') ? 'grid' : 'none';
   $('#efContainer').style.display = (m === 'eladen')   ? 'grid' : 'none';
+  $('.layout > .panel:first-of-type').style.display = (m === 'eladen')   ? 'none' : 'block';
+  $('.layout > .panel:nth-of-type(2)').style.display = (m === 'eladen')   ? 'block' : 'none';
 }
 function readFeatureFlags() {
   // gleiche Semantik für pf-* und ef-*; wenn eins gesetzt ist, gilt es
@@ -994,6 +1002,22 @@ function applyTopFilters() {
   filterFacilities();
   applyChargingFilters();
 }
+function openOverlay(title) {
+  const ov  = document.getElementById('overlay');
+  const ttl = document.getElementById('overlayTitle');
+  if (!ov) return;                // falls Overlay-HTML noch nicht eingebaut ist
+  if (ttl && title) ttl.textContent = title;
+  (title.indexOf("Lade") != -1) && ov.querySelector(".modal-grid").classList.add("lade");
+  ov.classList.add('open');
+  document.body.classList.add('modal-open');
+}
+function closeOverlay() {
+  const ov = document.getElementById('overlay');
+  if (!ov) return;
+  ov.classList.remove('open');
+  ov.querySelector(".modal-grid").classList.remove("lade");
+  document.body.classList.remove('modal-open');
+}
 async function boot() {
 
   await reloadFacilities();        // lädt und filtert (Definition 14)
@@ -1025,7 +1049,11 @@ async function boot() {
     applyChargingFilters();
   });
 
-
+  const ov = document.getElementById('overlay');
+  const btnClose = document.getElementById('overlayClose');
+  if (btnClose) btnClose.addEventListener('click', closeOverlay);
+  if (ov) ov.addEventListener('click', (e) => { if (e.target === ov) closeOverlay(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeOverlay(); });
 }
 
 window.addEventListener('DOMContentLoaded', boot);
