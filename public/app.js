@@ -378,7 +378,7 @@ const loadFacility           = (id) => apiJSON('/api/facilities/' + encodeURICom
 const loadOccupanciesForFacility = (id) => apiJSON('/api/occupancies/facility/' + encodeURIComponent(id));
 const loadDevicesForFacility     = (id) => apiJSON('/api/devices/facility/' + encodeURIComponent(id));
 // Charging:
-const loadChargingStations   = () => apiJSON('/api/charging-stations/?firstResult=0&maxResults=800&order=ASC&sort=DISTANCE');
+const loadChargingStations   = () => apiJSON('/api/charging-stations/?firstResult=0&maxResults=3000&order=ASC&sort=DISTANCE');
 const loadChargingStation    = (id) => apiJSON('/api/charging-stations/' + encodeURIComponent(id));
 
 // ---------- State ----------
@@ -422,13 +422,22 @@ function renderFacilitiesTable(rows) {
 
 function filterFacilities() {
   const needle = ($('#filterText').value || '').toLowerCase();
+  const feat   = readFeatureFlags();
 
   FAC_FILTERED = FAC_ALL.filter((f) => {
     // harte Schranke: nur Typ 14
     if (!ALLOWED_FAC_DEFS.has(String(f?.definitionId))) return false;
 
+    // Parkhaus muss mindestens eine Ladestation / Steckdose haben
+    if (feat.hasCharging && !f.hasCharging) return false;
+
     if (!needle) return true;
-    const s = toLowerJsonStr({ id: f.id, name: f.name, city: f.city, def: f.definitionId });
+    const s = toLowerJsonStr({
+      id:   f.id,
+      name: f.name,
+      city: f.city,
+      def:  f.definitionId
+    });
     return s.indexOf(needle) !== -1;
   });
 
@@ -732,7 +741,6 @@ function applyChargingFilters() {
     if (minKw && kw < minKw) return false;
 
     // 🔎 Feature-Checkboxen (wirken auf Charging-Attributes)
-    if (feat.height       && !stationHasFeature(st, 'height'))       return false;
     if (feat.surveillance && !stationHasFeature(st, 'surveillance')) return false;
     if (feat.roofed       && !stationHasFeature(st, 'roofed'))       return false;
     if (feat.elevator     && !stationHasFeature(st, 'elevator'))     return false;
@@ -750,7 +758,7 @@ function applyChargingFilters() {
 function wireFeatureCheckboxesBothPanels() {
   const ids = [
     // Parkhäuser-Panel
-    '#pf-height','#pf-surveillance','#pf-roofed','#pf-elevator',
+    '#pf-charging','#pf-roofed','#pf-elevator',
     '#pf-accessible','#pf-bike','#pf-family','#pf-women',
     // E-Laden-Panel
     '#ef-available',
@@ -761,7 +769,13 @@ function wireFeatureCheckboxesBothPanels() {
   ];
   ids.forEach((sel) => {
     const el = document.querySelector(sel);
-    if (el) el.addEventListener('change', applyChargingFilters);
+    if (el) {
+      el.addEventListener('change', () => {
+        // Re-apply both sides so everything stays in sync
+        filterFacilities();
+        applyChargingFilters();
+      });
+    }
   });
 }
 
@@ -780,9 +794,7 @@ function stationHasFeature(station, featureKey) {
     anyAttrHas(toAttrsMap({ attributes: attrs }), keys, pred);
 
   switch (featureKey) {
-    case 'height':       // Höhenbegrenzung vorhanden (egal ob m oder cm)
-      return hasAny(['CLEARANCE_METERS','EINFAHRTSHOEHE_M','EINFAHRTSHÖHE_M','HEIGHT_LIMIT_CM','EINFAHRTSHOEHE_CM','EINFAHRTSHÖHE_CM']);
-    case 'surveillance': // Überwacht / Kamera / CCTV
+     case 'surveillance': // Überwacht / Kamera / CCTV
       return hasAny(['SURVEILLANCE','CCTV','CAMERA','VIDEO_SURVEILLANCE','UEBERWACHT','ÜBERWACHT']);
     case 'roofed':       // Überdacht
       return hasAny(['ROOFED','UEBERDACHT','ÜBERDACHT'], v => String(v).toLowerCase() !== 'false');
@@ -949,6 +961,37 @@ function renderChargingDetail(detail) {
 
   $('#csRaw').textContent = safeJson(detail);
 }
+
+async function enrichFacilitiesWithFlags() {
+  // Compute derived flags like "hasCharging" for each facility
+  await Promise.all(
+    FAC_ALL.map(async (f) => {
+      const id = f && f.id;
+      if (id == null) {
+        f.hasCharging = false;
+        return;
+      }
+      try {
+        const rich = await getFacilityRich(id); // uses cache + loads devices
+        const devices = Array.isArray(rich?.devices) ? rich.devices : [];
+        const hasCharging = devices.some((d) => {
+          if (!d) return false;
+          const catKey = String(d?.category?.key || '').toUpperCase();
+          const type   = String(d?.type || '').toUpperCase();
+          return (
+            catKey === 'CHARGINGSTATION' ||
+            type.includes('CHARGING') ||
+            type.includes('EVSE')
+          );
+        });
+        f.hasCharging = hasCharging;
+      } catch (e) {
+        console.warn('hasCharging check failed for facility', id, e);
+        f.hasCharging = false;
+      }
+    })
+  );
+}
 // ---------- Boot ----------
 async function reloadFacilities() {
   const data = await loadFacilities();
@@ -959,6 +1002,8 @@ async function reloadFacilities() {
     .filter(f => ALLOWED_FAC_DEFS.has(String(f?.definitionId)))
     .sort((a, b) => Number(a.id) - Number(b.id));
 
+  // Enrich facilities with flags like hasCharging
+  //await enrichFacilitiesWithFlags();
   filterFacilities();
 }
 function setModeUI(mode) {
@@ -974,13 +1019,13 @@ function readFeatureFlags() {
   const q = (id) => !!(document.querySelector('#' + id)?.checked);
 
   return {
-    height:       q('pf-height'),
     surveillance: q('pf-surveillance'),
     roofed:       q('pf-roofed'),
     elevator:     q('pf-elevator'),
     accessible:   q('pf-accessible'),
     bike:         q('pf-bike'),
     family:       q('pf-family'),
+    hasCharging:  q('pf-hascharging'),
     women:        q('pf-women'),
     available:    q('ef-available')
   };
