@@ -38,9 +38,82 @@ function buildUpstreamUrl(upstreamPath, query = '') {
   if (query) url += (url.includes('?') ? '&' : '?') + query;
   return url;
 }
+function pickArray(json) {
+  if (Array.isArray(json)) return json;
+  if (json && Array.isArray(json.items)) return json.items;
+  if (json && Array.isArray(json.results)) return json.results;
+  if (json && Array.isArray(json.content)) return json.content;
+  return null;
+}
 
+function withSameShape(json, arr) {
+  if (Array.isArray(json)) return arr;
+  if (json && Array.isArray(json.items)) return { ...json, items: arr };
+  if (json && Array.isArray(json.results)) return { ...json, results: arr };
+  if (json && Array.isArray(json.content)) return { ...json, content: arr };
+  return json;
+}
+
+function collectAttributes(obj) {
+  return Array.isArray(obj && obj.attributes) ? obj.attributes : [];
+}
+
+function attrVal(attrs, keys) {
+  const wanted = keys.map((k) => String(k).toUpperCase());
+  for (const a of (attrs || [])) {
+    const key = String(a?.key || '').toUpperCase();
+    if (wanted.includes(key)) return a?.value != null ? String(a.value) : '';
+  }
+  return '';
+}
+
+function extractCountryCode(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+
+  if (obj.postalAddress && obj.postalAddress.country) {
+    const c = String(obj.postalAddress.country).trim().toUpperCase();
+    if (c === 'DEU') return 'DE';
+    return c;
+  }
+
+  const attrs = collectAttributes(obj);
+
+  const direct = attrVal(attrs, [
+    'COUNTRY',
+    'LAND',
+    'LÄNDERCODE',
+    'LAENDERCODE'
+  ]);
+
+  if (direct) {
+    const c = String(direct).trim().toUpperCase();
+    if (c === 'DEU' || c === 'DEUTSCHLAND' || c === 'GERMANY') return 'DE';
+    return c;
+  }
+
+  const postal = attrs.find((a) => String(a?.key || '').toUpperCase() === 'POSTAL_ADDRESS');
+  if (postal && postal.value) {
+    const lines = String(postal.value)
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const v = line.toUpperCase();
+      if (v === 'DE' || v === 'DEU' || v === 'DEUTSCHLAND' || v === 'GERMANY') {
+        return 'DE';
+      }
+    }
+  }
+
+  return '';
+}
+
+function isGermanObject(obj) {
+  return extractCountryCode(obj) === 'DE';
+}
 // GET-Proxy
-async function proxyGet(res, upstreamPath, query = '') {
+async function proxyGet(res, upstreamPath, query = '', options = {}) {
   const url = buildUpstreamUrl(upstreamPath, query);
   try {
     const r = await request(url, {
@@ -49,12 +122,23 @@ async function proxyGet(res, upstreamPath, query = '') {
       headersTimeout: 20000,
       bodyTimeout: 20000,
     });
+
     const ct = r.headers['content-type'] || '';
     res.status(r.statusCode || 200);
+
     if (isJson(ct)) {
-      const json = await r.body.json();
+      let json = await r.body.json();
+
+      if (typeof options.filterItem === 'function') {
+        const arr = pickArray(json);
+        if (arr) {
+          json = withSameShape(json, arr.filter(options.filterItem));
+        }
+      }
+
       return res.json(json);
     }
+
     res.setHeader('Content-Type', ct || 'application/octet-stream');
     return r.body.pipe(res);
   } catch (e) {
@@ -70,7 +154,12 @@ app.use('/', express.static(path.join(__dirname, 'public')));
 // iPAW Services (unter BASE_URL /ipaw)
 // ──────────────────────────────────────────────────────────
 app.get('/api/facilities', (req, res) =>
-  proxyGet(res, '/services/v4x0/facilities', reqQuery(req))
+  proxyGet(
+    res,
+    '/services/v4x0/facilities',
+    reqQuery(req),
+    { filterItem: isGermanObject }
+  )
 );
 app.get('/api/facilities/:id', (req, res) =>
   proxyGet(res, `/services/v4x0/facilities/${encodeURIComponent(req.params.id)}`, reqQuery(req))
@@ -108,7 +197,12 @@ app.get('/api/devices/facility/:id', (req, res) =>
 // Charging bleibt unverändert
 // ──────────────────────────────────────────────────────────
 app.get('/api/charging-stations', (req, res) =>
-  proxyGet(res, '/services/charging/v1x0/charging-stations', reqQuery(req))
+  proxyGet(
+    res,
+    '/services/charging/v1x0/charging-stations',
+    reqQuery(req),
+    { filterItem: isGermanObject }
+  )
 );
 app.get('/api/charging-stations/:id', (req, res) =>
   proxyGet(res, `/services/charging/v1x0/charging-stations/${encodeURIComponent(req.params.id)}`, reqQuery(req))

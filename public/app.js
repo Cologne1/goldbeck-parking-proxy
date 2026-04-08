@@ -202,6 +202,84 @@ function firstChargingStationId(devicesRaw) {
      }
     return null;
   }
+
+function normalizeGroupText(v) {
+  return String(v || '')
+    .replace(/<br\s*\/?>/gi, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getChargingStationGroupKey(station) {
+  const attrs = collectAttributes(station);
+  const ref = getAttr(attrs, 'CHARGING_STATION_LOCATION_REFERENCE');
+
+  if (ref && String(ref).trim()) {
+    return {
+      key: 'ref:' + String(ref).trim(),
+      label: String(ref).trim(),
+      by: 'reference'
+    };
+  }
+
+  const addr =
+    extractAddressFromAttributes(station) ||
+    station?.addressLine ||
+    '';
+
+  const normalizedAddr = normalizeGroupText(addr);
+
+  if (normalizedAddr) {
+    return {
+      key: 'addr:' + normalizedAddr.toLowerCase(),
+      label: normalizedAddr,
+      by: 'address'
+    };
+  }
+
+  const fallbackId = station?.id != null ? String(station.id) : 'unknown';
+  return {
+    key: 'id:' + fallbackId,
+    label: 'Ohne Zuordnung',
+    by: 'fallback'
+  };
+}
+
+function groupChargingStations(list) {
+  const groups = new Map();
+
+  for (const station of (list || [])) {
+    const meta = getChargingStationGroupKey(station);
+
+    if (!groups.has(meta.key)) {
+      const zip = extractZipFromText(meta.label);
+
+      groups.set(meta.key, {
+        key: meta.key,
+        label: meta.label,
+        by: meta.by,
+        zip,
+        items: []
+      });
+    }
+
+    groups.get(meta.key).items.push(station);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    // 1) nach PLZ sortieren
+    if (a.zip && b.zip && a.zip !== b.zip) {
+      return a.zip.localeCompare(b.zip, 'de', { numeric: true });
+    }
+
+    // 2) Gruppen ohne PLZ nach unten
+    if (a.zip && !b.zip) return -1;
+    if (!a.zip && b.zip) return 1;
+
+    // 3) fallback: Name
+    return a.label.localeCompare(b.label, 'de', { sensitivity: 'base' });
+  });
+}
 // ---------- Belegung (REST /iPCM) ----------
 function normalizeOccForFacility(res, facId) {
   if (!res) return null;
@@ -613,21 +691,36 @@ function stationHasPayment(station, needle /* 'Direct' | 'Contract' */) {
 
 function renderChargingList(list) {
   const tbody = $('#chargeTbody');
+  const groups = groupChargingStations(list);
   const out = [];
-  for (let i = 0; i < list.length; i++) {
-    const x = list[i] || {};
-    const id = x.id != null ? String(x.id) : '';
-    const nm = x.name || x.label || 'Ladestation';
+
+  for (const group of groups) {
+    const first = group.items[0] || {};
+    const count = group.items.length;
+
     out.push(
-      '<tr>' +
-      '<td><a class="id-link" href="#" data-csid="' + id + '">' + id + '</a></td>' +
-      '<td>' + nm + '</td>' +
+      '<tr class="group-row">' +
+      '<td colspan="2"><strong>' + group.label + '</strong>' +
+      ' <span class="muted">(' + count + ' Ladestation' + (count !== 1 ? 'en' : '') + ')</span></td>' +
       '</tr>'
     );
-  }
-  tbody.innerHTML = out.join('');
 
-  $('#countBadge2').textContent = list.length + ' Treffer';
+    for (const x of group.items) {
+      const id = x.id != null ? String(x.id) : '';
+      const nm = x.name || x.label || 'Ladestation';
+
+      out.push(
+        '<tr>' +
+        '<td><a class="id-link" href="#" data-csid="' + id + '">' + id + '</a></td>' +
+        '<td>' + nm + '</td>' +
+        '</tr>'
+      );
+    }
+  }
+
+  tbody.innerHTML = out.join('');
+  $('#countBadge2').textContent = groups.length + ' Gruppen / ' + list.length + ' Ladestationen';
+
   $$('#chargeTbody .id-link').forEach((a) => {
     a.addEventListener('click', async function (e) {
       e.preventDefault();
@@ -723,24 +816,34 @@ function applyChargingFilters() {
   const feat = readFeatureFlags();
 
   const rows = CS_ALL.filter(st => {
-    // Volltext (global links) + rechter Textfilter (zusätzlich)
-    if (qtext)  { if (toLowerJsonStr(st).indexOf(qtext)  === -1) return false; }
-    if (qright) { if (toLowerJsonStr(st).indexOf(qright) === -1) return false; }
+    const attrs = collectAttributes(st);
+    const locRef = getAttr(attrs, 'CHARGING_STATION_LOCATION_REFERENCE');
+    const addr = normalizeGroupText(
+      extractAddressFromAttributes(st) || st?.addressLine || ''
+    );
 
-    // Payment
+    const searchBlob = toLowerJsonStr({
+      id: st?.id,
+      name: st?.name,
+      label: st?.label,
+      locationReference: locRef,
+      address: addr,
+      raw: st
+    });
+
+    if (qtext && searchBlob.indexOf(qtext) === -1) return false;
+    if (qright && searchBlob.indexOf(qright) === -1) return false;
+
     if (wantDirect   && !stationHasPayment(st, 'Direct'))   return false;
     if (wantContract && !stationHasPayment(st, 'Contract')) return false;
 
-    // Steckertyp
     const plug = stationPlugType(st);
     if (fType2 && plug !== 'Type 2') return false;
     if (fCCS   && plug !== 'CCS')    return false;
 
-    // Leistung
     const kw = stationMaxPowerKw(st) || 0;
     if (minKw && kw < minKw) return false;
 
-    // 🔎 Feature-Checkboxen (wirken auf Charging-Attributes)
     if (feat.surveillance && !stationHasFeature(st, 'surveillance')) return false;
     if (feat.roofed       && !stationHasFeature(st, 'roofed'))       return false;
     if (feat.elevator     && !stationHasFeature(st, 'elevator'))     return false;
@@ -748,12 +851,22 @@ function applyChargingFilters() {
     if (feat.bike         && !stationHasFeature(st, 'bike'))         return false;
     if (feat.family       && !stationHasFeature(st, 'family'))       return false;
     if (feat.women        && !stationHasFeature(st, 'women'))        return false;
-    if (feat.available    && !stationHasFeature(st, 'available'))        return false;
+    if (feat.available    && !stationHasFeature(st, 'available'))    return false;
 
     return true;
   });
 
   renderChargingList(rows);
+}
+
+function extractZipFromText(text) {
+  if (!text) return '';
+
+  const t = String(text);
+
+  // typische deutsche PLZ (4–6 Ziffern)
+  const m = t.match(/\b\d{4,6}\b/);
+  return m ? m[0] : '';
 }
 function wireFeatureCheckboxesBothPanels() {
   const ids = [
